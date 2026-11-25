@@ -1,0 +1,23 @@
+# Abhängigkeiten
+node_modules/
+
+# Datenbank (enthält Benutzer und Passwort-Hashes)
+data/
+*.db
+*.db-*
+*.sqlite*
+
+# Geheime Einstellungen
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# System- und Editor-Dateien
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

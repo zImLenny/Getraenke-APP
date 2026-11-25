@@ -1,0 +1,30 @@
+# Für einen eigenen Server (z. B. Hetzner VPS).
+# Caddy holt automatisch ein HTTPS-Zertifikat für DOMAIN.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_FILE: /data/getraenke.db
+      SECURE_COOKIES: "true"
+    volumes:
+      - app-data:/data
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    command: caddy reverse-proxy --from ${DOMAIN} --to app:3000
+    volumes:
+      - caddy-data:/data
+    depends_on:
+      - app
+
+volumes:
+  app-data:
+  caddy-data:

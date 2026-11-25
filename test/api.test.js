@@ -1,0 +1,109 @@
+const { test, before, after } = require('node:test');
+const assert = require('node:assert');
+const { createApp } = require('../src/app');
+
+let server;
+let base;
+
+before(async () => {
+  const app = createApp({ dbFile: ':memory:', adminUsername: 'admin', adminPassword: 'geheim123', registrationCode: 'party' });
+  await new Promise((r) => { server = app.listen(0, r); });
+  base = `http://127.0.0.1:${server.address().port}/api`;
+});
+
+after(() => server.close());
+
+// Kleiner Client, der den Sitzungs-Cookie behält.
+function client() {
+  let cookie = '';
+  return async (path, { method = 'GET', body } = {}) => {
+    const res = await fetch(base + path, {
+      method,
+      headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const set = res.headers.get('set-cookie');
+    if (set) cookie = set.split(';')[0];
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = text; }
+    return { status: res.status, data };
+  };
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+test('kompletter Ablauf: Admin legt Getränk an, Gast bucht, Admin korrigiert', async () => {
+  const admin = client();
+  const guest = client();
+
+  assert.equal((await admin('/login', { method: 'POST', body: { username: 'admin', password: 'falsch' } })).status, 401);
+  assert.equal((await admin('/login', { method: 'POST', body: { username: 'admin', password: 'geheim123' } })).status, 200);
+  assert.equal((await admin('/me')).data.user.isAdmin, true);
+
+  const bier = await admin('/admin/drinks', { method: 'POST', body: { name: 'Bier', price: '3,50' } });
+  assert.equal(bier.status, 201);
+  const bierId = bier.data.id;
+
+  // Registrierung nur mit richtigem Code
+  assert.equal((await guest('/register', { method: 'POST', body: { username: 'max', password: 'abcdef', code: 'nope' } })).status, 403);
+  assert.equal((await guest('/register', { method: 'POST', body: { username: 'max', displayName: 'Max', password: 'abcdef', code: 'party' } })).status, 201);
+  const me = (await guest('/me')).data.user;
+  assert.equal(me.isAdmin, false);
+
+  // Gast darf Plus …
+  let r = await guest('/consumptions', { method: 'POST', body: { drinkId: bierId } });
+  assert.equal(r.status, 201);
+  // … aber kein Doppel-Tipp direkt hintereinander
+  assert.equal((await guest('/consumptions', { method: 'POST', body: { drinkId: bierId } })).status, 429);
+  await sleep(900);
+  r = await guest('/consumptions', { method: 'POST', body: { drinkId: bierId } });
+  assert.equal(r.data.totalCount, 2);
+  assert.equal(r.data.totalCents, 700);
+
+  // … aber kein Minus und keine Admin-Funktionen
+  assert.equal((await guest('/admin/consumptions/undo', { method: 'POST', body: { userId: me.id, drinkId: bierId } })).status, 403);
+  assert.equal((await guest('/admin/overview')).status, 403);
+
+  // Preisänderung wirkt nur auf neue Buchungen
+  await admin(`/admin/drinks/${bierId}`, { method: 'PUT', body: { price: '4' } });
+  await sleep(900);
+  r = await guest('/consumptions', { method: 'POST', body: { drinkId: bierId } });
+  assert.equal(r.data.totalCents, 1100);
+
+  // Admin-Minus
+  assert.equal((await admin('/admin/consumptions/undo', { method: 'POST', body: { userId: me.id, drinkId: bierId } })).status, 200);
+  const ov = (await admin('/admin/overview')).data;
+  const cell = ov.cells.find((c) => c.userId === me.id && c.drinkId === bierId);
+  assert.equal(cell.count, 2);
+  assert.equal(cell.totalCents, 700);
+
+  // Protokoll zeigt die entfernte Buchung
+  const log = (await admin('/admin/log')).data.log;
+  assert.equal(log.filter((l) => l.deletedAt).length, 1);
+
+  // Getränk mit Buchungen lässt sich nicht löschen
+  assert.equal((await admin(`/admin/drinks/${bierId}`, { method: 'DELETE' })).status, 409);
+
+  // Deaktiviertes Getränk kann der Gast nicht buchen
+  await admin(`/admin/drinks/${bierId}`, { method: 'PUT', body: { active: false } });
+  assert.equal((await guest('/drinks')).data.drinks.length, 0);
+  assert.equal((await guest('/consumptions', { method: 'POST', body: { drinkId: bierId } })).status, 404);
+
+  // CSV-Export
+  const csv = await admin('/admin/export.csv');
+  assert.match(csv.data, /"Max";"max";"Bier";2;7,00/);
+});
+
+test('ohne Anmeldung kein Zugriff', async () => {
+  const anon = client();
+  assert.equal((await anon('/drinks')).status, 401);
+  assert.equal((await anon('/consumptions', { method: 'POST', body: { drinkId: 1 } })).status, 401);
+  assert.equal((await anon('/admin/overview')).status, 401);
+});
+
+test('Benutzername ist eindeutig (ohne Groß/Klein)', async () => {
+  const c = client();
+  assert.equal((await c('/register', { method: 'POST', body: { username: 'Anna', password: 'abcdef', code: 'party' } })).status, 201);
+  assert.equal((await client()('/register', { method: 'POST', body: { username: 'anna', password: 'abcdef', code: 'party' } })).status, 409);
+});

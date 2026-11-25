@@ -1,0 +1,28 @@
+{
+  "name": "getraenke-app",
+  "version": "1.0.0",
+  "description": "Getränke-Zähler für Veranstaltungen",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zImLenny/Getraenke-APP.git"
+  },
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/zImLenny/Getraenke-APP/issues"
+  },
+  "homepage": "https://github.com/zImLenny/Getraenke-APP#readme",
+  "dependencies": {
+    "better-sqlite3": "^13.2.0",
+    "express": "^4.22.3"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}
