@@ -159,7 +159,7 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   await admin('/login', { method: 'POST', body: { username: 'admin', password: 'geheim123' } });
   const drinkId = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Cola', price: '2,50' } })).data.id;
   const g = client();
-  await g('/register', { method: 'POST', body: { username: 'paula', displayName: 'Paula', password: 'abcdef', code: 'party' } });
+  await g('/register', { method: 'POST', body: { username: 'paula', displayName: 'Pau\nla', password: 'abcdef', code: 'party' } });
   await g('/consumptions', { method: 'POST', body: { drinkId } });
   assert.equal((await g('/me/summary')).data.payment, null);
 
@@ -178,13 +178,21 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   assert.equal(s.payment.iban, 'DE89370400440532013000');
   assert.equal(s.payment.paypalUrl, 'https://paypal.me/lenny/2.50EUR');
   assert.match(s.payment.qr, /^data:image\/png;base64,/);
-  assert.match(s.payment.reference, /Paula/);
+  assert.match(s.payment.reference, /Getränke Testabend Pau la$/); // kein Zeilenumbruch im QR-Code
 
   // Liste ist fest
   await sleep(900); // Doppel-Tipp-Schutz abwarten
   assert.equal((await g('/consumptions', { method: 'POST', body: { drinkId } })).status, 409);
   assert.equal((await admin('/admin/consumptions', { method: 'POST', body: { userId: 1, drinkId } })).status, 409);
   assert.equal((await admin('/admin/settings')).data.paypal, 'lenny');
+
+  // Versehentlich beendet: wieder öffnen, buchen, erneut beenden
+  assert.equal((await admin('/admin/events/reopen', { method: 'POST' })).status, 200);
+  assert.equal((await admin('/admin/events/reopen', { method: 'POST' })).status, 409);
+  await sleep(900);
+  assert.equal((await g('/consumptions', { method: 'POST', body: { drinkId } })).status, 201);
+  assert.equal((await g('/me/summary')).data.totalCents, 500);
+  assert.equal((await end({ paypal: 'lenny' })).status, 200);
 
   // Neues Event startet bei null
   assert.equal((await admin('/admin/events', { method: 'POST', body: { name: 'Abend 2' } })).status, 201);

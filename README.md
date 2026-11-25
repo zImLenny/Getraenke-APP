@@ -17,6 +17,8 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 - Buchen geht nur, solange ein Event läuft. Jedes Event startet bei null.
 - Zum Beenden trägt der Admin Kontoinhaber, IBAN und optional einen PayPal.me-Link ein und tippt auf „Fertig“.
 - Danach ist die Liste fest. Niemand kann mehr buchen oder korrigieren.
+- Aus Versehen beendet? Mit **„Event wieder öffnen“** geht es weiter, solange kein neues Event läuft.
+- Ein neues Event versteckt die Abrechnung des alten. Exportiere vorher die CSV. Die App warnt dich vor dem Start.
 - Innerhalb von 10 Sekunden sehen alle Gäste ihre Abrechnung:
   - Was sie getrunken haben und was es kostet.
   - Einen QR-Code für die Überweisung („GiroCode“). Die Banking-App füllt damit Empfänger, IBAN, Betrag und Verwendungszweck aus.

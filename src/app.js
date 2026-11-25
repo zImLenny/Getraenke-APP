@@ -181,15 +181,25 @@ async function createApp(config = {}) {
   async function paymentInfo(user, event, cents) {
     const s = await getSettings();
     const amount = (cents / 100).toFixed(2);
-    const reference = `Getränke ${event.name} ${user.displayName}`.slice(0, 140);
-    const out = { amountCents: cents, reference, payeeName: s.payeeName, iban: s.iban, paypalUrl: null, qr: null };
+    // Der QR-Code trennt Felder mit Zeilenumbrüchen. Darum Leerraum in Namen zu einem Leerzeichen machen.
+    const oneLine = (t) => t.replace(/\s+/g, ' ');
+    const reference = oneLine(`Getränke ${event.name} ${user.displayName}`).slice(0, 140);
+    const payeeName = oneLine(s.payeeName);
+    const out = { amountCents: cents, reference, payeeName, iban: s.iban, paypalUrl: null, qr: null };
     if (s.paypal) out.paypalUrl = `https://paypal.me/${s.paypal}/${amount}EUR`;
     if (s.iban) {
       // EPC-QR-Code („GiroCode“), Version 002. Fast alle Banking-Apps in Europa lesen ihn.
-      const epc = ['BCD', '002', '1', 'SCT', '', s.payeeName, s.iban, `EUR${amount}`, '', '', reference].join('\n');
+      const epc = ['BCD', '002', '1', 'SCT', '', payeeName, s.iban, `EUR${amount}`, '', '', reference].join('\n');
       out.qr = await QRCode.toDataURL(epc, { errorCorrectionLevel: 'M', margin: 2, width: 260 });
     }
     return out;
+  }
+
+  // Bucht nur ins laufende Event. Ohne laufendes Event: 409.
+  async function book(userId, drinkId, priceCents, byUserId) {
+    const info = await db.run(`INSERT INTO consumptions (user_id, drink_id, price_cents, created_by, event_id)
+      SELECT ?, ?, ?, ?, id FROM events WHERE ended_at IS NULL`, userId, drinkId, priceCents, byUserId);
+    if (!info.changes) throw new HttpError(409, NO_EVENT);
   }
 
   // ---------- Gäste ----------
@@ -228,9 +238,7 @@ async function createApp(config = {}) {
     const now = Date.now();
     if (now - (lastTap.get(tapKey) || 0) < DOUBLE_TAP_MS) throw new HttpError(429, 'Zu schnell – bitte kurz warten.');
     lastTap.set(tapKey, now);
-    const info = await db.run(`INSERT INTO consumptions (user_id, drink_id, price_cents, created_by, event_id)
-      SELECT ?, ?, ?, ?, id FROM events WHERE ended_at IS NULL`, req.user.id, drinkId, drink.price_cents, req.user.id);
-    if (!info.changes) throw new HttpError(409, NO_EVENT);
+    await book(req.user.id, drinkId, drink.price_cents, req.user.id);
     res.status(201).json(await userSummary(req.user));
   });
 
@@ -257,9 +265,7 @@ async function createApp(config = {}) {
     const drink = await db.get('SELECT price_cents FROM drinks WHERE id = ?', drinkId);
     if (!drink) throw new HttpError(404, 'Getränk nicht gefunden.');
     if (!await db.get('SELECT 1 FROM users WHERE id = ?', userId)) throw new HttpError(404, 'Person nicht gefunden.');
-    const info = await db.run(`INSERT INTO consumptions (user_id, drink_id, price_cents, created_by, event_id)
-      SELECT ?, ?, ?, ?, id FROM events WHERE ended_at IS NULL`, userId, drinkId, drink.price_cents, req.user.id);
-    if (!info.changes) throw new HttpError(409, NO_EVENT);
+    await book(userId, drinkId, drink.price_cents, req.user.id);
     res.status(201).json({ ok: true });
   });
 
@@ -342,6 +348,14 @@ async function createApp(config = {}) {
       [`UPDATE events SET ended_at = datetime('now') WHERE ended_at IS NULL`],
     ]);
     if (!results[3].rowsAffected) throw new HttpError(409, NO_EVENT);
+    res.json({ ok: true });
+  });
+
+  // Öffnet das neueste Event wieder, falls es aus Versehen beendet wurde.
+  admin.post('/events/reopen', async (_req, res) => {
+    const info = await db.run(`UPDATE events SET ended_at = NULL
+                               WHERE id = (SELECT MAX(id) FROM events) AND ended_at IS NOT NULL`);
+    if (!info.changes) throw new HttpError(409, 'Kein beendetes Event zum Öffnen.');
     res.json({ ok: true });
   });
 

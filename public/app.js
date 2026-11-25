@@ -157,7 +157,7 @@ async function renderGuest() {
   const key = eventKey(summary.event);
   clearInterval(state.pollTimer);
   state.pollTimer = setInterval(async () => {
-    const s = await api('/me/summary').catch(() => null);
+    const s = await api('/me').catch(() => null);
     if (s && eventKey(s.event) !== key) route();
   }, 10000);
 
@@ -357,13 +357,14 @@ function inputField(labelText, name, value, placeholder) {
 }
 
 async function adminEvent(body) {
-  const [{ event }, settings] = await Promise.all([api('/admin/overview'), api('/admin/settings')]);
+  const [{ event }, settings] = await Promise.all([api('/me'), api('/admin/settings')]);
   setEvent(event);
   const err = h('p', { class: 'error' });
 
   if (!event || event.endedAt) {
     const form = h('form', { class: 'stack', onsubmit: async (e) => {
       e.preventDefault();
+      if (event && !confirm(`Die Abrechnung von „${event.name}“ verschwindet dann für alle Gäste und aus der Übersicht. Hast du vorher die CSV exportiert (Tab Übersicht)?`)) return;
       try {
         await api('/admin/events', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
         toast('Event gestartet');
@@ -374,7 +375,17 @@ async function adminEvent(body) {
       err,
       h('button', { class: 'btn primary block', type: 'submit' }, 'Event starten'));
     body.replaceChildren(
-      event ? h('p', { class: 'muted small' }, `Letztes Event: ${event.name}, beendet am ${time(event.endedAt)}.`) : null,
+      event ? h('div', { class: 'card stack' },
+        h('p', {}, `Letztes Event: ${event.name}, beendet am ${time(event.endedAt)}.`),
+        h('button', { class: 'btn', onclick: async () => {
+          if (!confirm(`„${event.name}“ wieder öffnen? Die Gäste können dann wieder buchen.`)) return;
+          try {
+            await api('/admin/events/reopen', { method: 'POST' });
+            toast('Event wieder geöffnet');
+            adminEvent(body);
+          } catch (ex) { toast(ex.message, true); }
+        } }, 'Event wieder öffnen')) : null,
+      event ? h('div', { style: 'height:12px' }) : null,
       h('div', { class: 'card stack' }, h('h2', {}, 'Neues Event'), form));
     return;
   }
