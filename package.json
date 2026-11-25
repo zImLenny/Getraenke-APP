@@ -19,7 +19,8 @@
   "homepage": "https://github.com/zImLenny/Getraenke-APP#readme",
   "dependencies": {
     "@libsql/client": "^0.18.0",
-    "express": "^5.3.0"
+    "express": "^5.3.0",
+    "qrcode": "^1.5.4"
   },
   "private": true,
   "engines": {

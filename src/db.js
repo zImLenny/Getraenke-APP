@@ -32,6 +32,21 @@ async function openDatabase(url, authToken) {
       created_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- Ein Event = ein Abend. Es läuft höchstens ein Event (ended_at IS NULL).
+    CREATE TABLE IF NOT EXISTS events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      started_at TEXT NOT NULL DEFAULT (datetime('now')),
+      ended_at   TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_one_open_event ON events((ended_at IS NULL)) WHERE ended_at IS NULL;
+
+    -- Zahlungsdaten des Admins (payeeName, iban, paypal).
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     -- Jede Zeile = ein Getränk. Der Preis wird beim Buchen gespeichert,
     -- damit spätere Preisänderungen alte Buchungen nicht verändern.
     -- Admin-Minus löscht nicht, sondern markiert die Zeile (deleted_at).
@@ -43,10 +58,23 @@ async function openDatabase(url, authToken) {
       created_at  TEXT NOT NULL DEFAULT (datetime('now')),
       created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
       deleted_at  TEXT,
-      deleted_by  INTEGER REFERENCES users(id) ON DELETE SET NULL
+      deleted_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      event_id    INTEGER REFERENCES events(id)
     );
+  `);
 
-    CREATE INDEX IF NOT EXISTS idx_cons_user_drink ON consumptions(user_id, drink_id) WHERE deleted_at IS NULL;
+  // Alte Datenbanken ohne Events: Spalte nachrüsten, alte Buchungen in ein beendetes Event legen.
+  const cols = (await client.execute('PRAGMA table_info(consumptions)')).rows;
+  if (!cols.some((c) => c.name === 'event_id')) {
+    await client.execute('ALTER TABLE consumptions ADD COLUMN event_id INTEGER REFERENCES events(id)');
+    if ((await client.execute('SELECT 1 FROM consumptions LIMIT 1')).rows.length) {
+      const ev = await client.execute(`INSERT INTO events (name, ended_at) VALUES ('Frühere Buchungen', datetime('now'))`);
+      await client.execute({ sql: 'UPDATE consumptions SET event_id = ?', args: [ev.lastInsertRowid] });
+    }
+  }
+  await client.executeMultiple(`
+    DROP INDEX IF EXISTS idx_cons_user_drink;
+    CREATE INDEX IF NOT EXISTS idx_cons_event ON consumptions(event_id, user_id, drink_id) WHERE deleted_at IS NULL;
   `);
 
   // Gleiche Methoden-Namen wie vorher (get/all/run), nur async.

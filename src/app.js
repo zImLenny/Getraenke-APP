@@ -1,5 +1,6 @@
 const path = require('path');
 const express = require('express');
+const QRCode = require('qrcode');
 const { openDatabase } = require('./db');
 const { hashPassword, verifyPassword, createAuth, requireUser, requireAdmin } = require('./auth');
 
@@ -25,6 +26,29 @@ function priceToCents(value) {
   if (!Number.isFinite(n) || n < 0 || n > 10000) throw new HttpError(400, 'Preis ungültig.');
   return Math.round(n * 100);
 }
+
+// Prüft Format und Prüfziffer (ISO 13616, mod 97). Leer = nicht gesetzt.
+function normalizeIban(value) {
+  const iban = String(value || '').replace(/\s+/g, '').toUpperCase();
+  if (!iban) return '';
+  if (!/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(iban)) throw new HttpError(400, 'IBAN ungültig.');
+  const digits = (iban.slice(4) + iban.slice(0, 4)).replace(/[A-Z]/g, (c) => c.charCodeAt(0) - 55);
+  let rest = 0;
+  for (const d of digits) rest = (rest * 10 + Number(d)) % 97;
+  if (rest !== 1) throw new HttpError(400, 'IBAN ungültig (Prüfziffer falsch).');
+  return iban;
+}
+
+// Akzeptiert "name", "paypal.me/name" oder "https://www.paypal.com/paypalme/name". Speichert nur den Namen.
+function normalizePaypal(value) {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  const m = s.match(/^(?:https?:\/\/)?(?:www\.)?(?:paypal\.me\/|paypal\.com\/paypalme\/)?([a-z0-9]{1,20})\/?$/i);
+  if (!m) throw new HttpError(400, 'PayPal.me-Link ungültig.');
+  return m[1];
+}
+
+const NO_EVENT = 'Gerade läuft kein Event.';
 
 function intId(value) {
   const n = Number(value);
@@ -140,8 +164,43 @@ async function createApp(config = {}) {
   });
 
   api.get('/me', async (req, res) => {
-    res.json({ user: req.user });
+    res.json({ user: req.user, event: req.user ? await latestEvent() : null });
   });
+
+  // ---------- Events und Zahlung ----------
+
+  // Das neueste Event, egal ob laufend oder beendet.
+  const latestEvent = () => db.get(`SELECT id, name, started_at AS startedAt, ended_at AS endedAt
+                                    FROM events ORDER BY id DESC LIMIT 1`);
+
+  async function getSettings() {
+    const s = Object.fromEntries((await db.all('SELECT key, value FROM settings')).map((r) => [r.key, r.value]));
+    return { payeeName: s.payeeName || '', iban: s.iban || '', paypal: s.paypal || '' };
+  }
+
+  async function paymentInfo(user, event, cents) {
+    const s = await getSettings();
+    const amount = (cents / 100).toFixed(2);
+    // Der QR-Code trennt Felder mit Zeilenumbrüchen. Darum Leerraum in Namen zu einem Leerzeichen machen.
+    const oneLine = (t) => t.replace(/\s+/g, ' ');
+    const reference = oneLine(`Getränke ${event.name} ${user.displayName}`).slice(0, 140);
+    const payeeName = oneLine(s.payeeName);
+    const out = { amountCents: cents, reference, payeeName, iban: s.iban, paypalUrl: null, qr: null };
+    if (s.paypal) out.paypalUrl = `https://paypal.me/${s.paypal}/${amount}EUR`;
+    if (s.iban) {
+      // EPC-QR-Code („GiroCode“), Version 002. Fast alle Banking-Apps in Europa lesen ihn.
+      const epc = ['BCD', '002', '1', 'SCT', '', payeeName, s.iban, `EUR${amount}`, '', '', reference].join('\n');
+      out.qr = await QRCode.toDataURL(epc, { errorCorrectionLevel: 'M', margin: 2, width: 260 });
+    }
+    return out;
+  }
+
+  // Bucht nur ins laufende Event. Ohne laufendes Event: 409.
+  async function book(userId, drinkId, priceCents, byUserId) {
+    const info = await db.run(`INSERT INTO consumptions (user_id, drink_id, price_cents, created_by, event_id)
+      SELECT ?, ?, ?, ?, id FROM events WHERE ended_at IS NULL`, userId, drinkId, priceCents, byUserId);
+    if (!info.changes) throw new HttpError(409, NO_EVENT);
+  }
 
   // ---------- Gäste ----------
 
@@ -151,17 +210,22 @@ async function createApp(config = {}) {
     res.json({ drinks });
   });
 
-  async function userSummary(userId) {
-    const rows = await db.all(`
-      SELECT drink_id AS drinkId, COUNT(*) AS count, SUM(price_cents) AS totalCents
-      FROM consumptions WHERE user_id = ? AND deleted_at IS NULL GROUP BY drink_id`, userId);
+  // Summe des Gastes im neuesten Event. Nach dem Ende kommen die Zahlungsdaten dazu.
+  async function userSummary(user) {
+    const event = await latestEvent();
+    const rows = event ? await db.all(`
+      SELECT c.drink_id AS drinkId, d.name, COUNT(*) AS count, SUM(c.price_cents) AS totalCents
+      FROM consumptions c JOIN drinks d ON d.id = c.drink_id
+      WHERE c.user_id = ? AND c.event_id = ? AND c.deleted_at IS NULL
+      GROUP BY c.drink_id ORDER BY d.sort_order, d.name`, user.id, event.id) : [];
     const totalCents = rows.reduce((s, r) => s + r.totalCents, 0);
     const totalCount = rows.reduce((s, r) => s + r.count, 0);
-    return { perDrink: rows, totalCents, totalCount };
+    const payment = event?.endedAt && totalCents > 0 ? await paymentInfo(user, event, totalCents) : null;
+    return { event: event || null, perDrink: rows, totalCents, totalCount, payment };
   }
 
   api.get('/me/summary', requireUser, async (req, res) => {
-    res.json(await userSummary(req.user.id));
+    res.json(await userSummary(req.user));
   });
 
   // Nur Plus. Minus darf nur der Admin.
@@ -174,8 +238,8 @@ async function createApp(config = {}) {
     const now = Date.now();
     if (now - (lastTap.get(tapKey) || 0) < DOUBLE_TAP_MS) throw new HttpError(429, 'Zu schnell – bitte kurz warten.');
     lastTap.set(tapKey, now);
-    await db.run('INSERT INTO consumptions (user_id, drink_id, price_cents, created_by) VALUES (?, ?, ?, ?)', req.user.id, drinkId, drink.price_cents, req.user.id);
-    res.status(201).json(await userSummary(req.user.id));
+    await book(req.user.id, drinkId, drink.price_cents, req.user.id);
+    res.status(201).json(await userSummary(req.user));
   });
 
   // ---------- Admin ----------
@@ -184,14 +248,15 @@ async function createApp(config = {}) {
   admin.use(requireAdmin);
 
   admin.get('/overview', async (_req, res) => {
+    const event = await latestEvent();
     const users = await db.all(`SELECT id, username, display_name AS displayName, is_admin AS isAdmin
                               FROM users ORDER BY display_name COLLATE NOCASE`);
     const drinks = await db.all(`SELECT id, name, price_cents AS priceCents, active FROM drinks
                                ORDER BY sort_order, name`);
-    const cells = await db.all(`
+    const cells = event ? await db.all(`
       SELECT user_id AS userId, drink_id AS drinkId, COUNT(*) AS count, SUM(price_cents) AS totalCents
-      FROM consumptions WHERE deleted_at IS NULL GROUP BY user_id, drink_id`);
-    res.json({ users, drinks, cells });
+      FROM consumptions WHERE deleted_at IS NULL AND event_id = ? GROUP BY user_id, drink_id`, event.id) : [];
+    res.json({ event: event || null, users, drinks, cells });
   });
 
   admin.post('/consumptions', async (req, res) => {
@@ -200,7 +265,7 @@ async function createApp(config = {}) {
     const drink = await db.get('SELECT price_cents FROM drinks WHERE id = ?', drinkId);
     if (!drink) throw new HttpError(404, 'Getränk nicht gefunden.');
     if (!await db.get('SELECT 1 FROM users WHERE id = ?', userId)) throw new HttpError(404, 'Person nicht gefunden.');
-    await db.run('INSERT INTO consumptions (user_id, drink_id, price_cents, created_by) VALUES (?, ?, ?, ?)', userId, drinkId, drink.price_cents, req.user.id);
+    await book(userId, drinkId, drink.price_cents, req.user.id);
     res.status(201).json({ ok: true });
   });
 
@@ -211,6 +276,7 @@ async function createApp(config = {}) {
     const info = await db.run(`
       UPDATE consumptions SET deleted_at = datetime('now'), deleted_by = ?
       WHERE id = (SELECT id FROM consumptions WHERE user_id = ? AND drink_id = ? AND deleted_at IS NULL
+                  AND event_id = (SELECT id FROM events WHERE ended_at IS NULL)
                   ORDER BY id DESC LIMIT 1)`, req.user.id, userId, drinkId);
     if (info.changes === 0) throw new HttpError(404, 'Keine Buchung vorhanden.');
     res.json({ ok: true });
@@ -227,6 +293,7 @@ async function createApp(config = {}) {
       JOIN drinks d ON d.id = c.drink_id
       LEFT JOIN users cb ON cb.id = c.created_by
       LEFT JOIN users db2 ON db2.id = c.deleted_by
+      WHERE c.event_id = (SELECT MAX(id) FROM events)
       ORDER BY c.id DESC LIMIT ?`, limit);
     res.json({ log: rows });
   });
@@ -235,7 +302,7 @@ async function createApp(config = {}) {
     const rows = await db.all(`
       SELECT u.display_name AS person, u.username, d.name AS drink, COUNT(*) AS count, SUM(c.price_cents) AS cents
       FROM consumptions c JOIN users u ON u.id = c.user_id JOIN drinks d ON d.id = c.drink_id
-      WHERE c.deleted_at IS NULL
+      WHERE c.deleted_at IS NULL AND c.event_id = (SELECT MAX(id) FROM events)
       GROUP BY c.user_id, c.drink_id ORDER BY u.display_name COLLATE NOCASE, d.sort_order, d.name`);
     // ' vor =+-@ verhindert, dass Excel Namen als Formel ausführt.
     const esc = (v) => `"${String(v).replace(/^[=+\-@]/, "'$&").replace(/"/g, '""')}"`;
@@ -246,6 +313,50 @@ async function createApp(config = {}) {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="getraenke.csv"');
     res.send('﻿' + lines.join('\r\n'));
+  });
+
+  // Events
+  admin.post('/events', async (req, res) => {
+    const name = str(req.body.name, 'Name', { max: 60 });
+    try {
+      const info = await db.run('INSERT INTO events (name) VALUES (?)', name);
+      res.status(201).json({ id: info.lastInsertRowid });
+    } catch (e) {
+      if (String(e.message).includes('UNIQUE')) throw new HttpError(409, 'Es läuft schon ein Event.');
+      throw e;
+    }
+  });
+
+  admin.get('/settings', async (_req, res) => {
+    res.json(await getSettings());
+  });
+
+  // Speichert die Zahlungsdaten und beendet das Event. Danach ist die Liste fest.
+  admin.post('/events/end', async (req, res) => {
+    const payeeName = str(req.body.payeeName, 'Kontoinhaber', { min: 0, max: 70 });
+    const iban = normalizeIban(req.body.iban);
+    const paypal = normalizePaypal(req.body.paypal);
+    if (iban && !payeeName) throw new HttpError(400, 'Kontoinhaber fehlt.');
+    if (!iban && !paypal) throw new HttpError(400, 'Bitte IBAN oder PayPal.me angeben.');
+    // Erst prüfen, sonst überschreibt ein zweiter Klick die Zahlungsdaten eines beendeten Events.
+    if (!await db.get('SELECT 1 FROM events WHERE ended_at IS NULL')) throw new HttpError(409, NO_EVENT);
+    const set = 'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)';
+    const results = await db.batch([
+      [set, 'payeeName', payeeName],
+      [set, 'iban', iban],
+      [set, 'paypal', paypal],
+      [`UPDATE events SET ended_at = datetime('now') WHERE ended_at IS NULL`],
+    ]);
+    if (!results[3].rowsAffected) throw new HttpError(409, NO_EVENT);
+    res.json({ ok: true });
+  });
+
+  // Öffnet das neueste Event wieder, falls es aus Versehen beendet wurde.
+  admin.post('/events/reopen', async (_req, res) => {
+    const info = await db.run(`UPDATE events SET ended_at = NULL
+                               WHERE id = (SELECT MAX(id) FROM events) AND ended_at IS NOT NULL`);
+    if (!info.changes) throw new HttpError(409, 'Kein beendetes Event zum Öffnen.');
+    res.json({ ok: true });
   });
 
   // Getränke verwalten

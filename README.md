@@ -12,14 +12,27 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 - Schutz gegen Doppel-Tipp (0,8 Sekunden).
 - Läuft im Browser. Gäste können die Seite zum Startbildschirm hinzufügen (siehe [App aufs Telefon bringen](#app-aufs-telefon-bringen)).
 
+**Events**
+- Der Admin startet ein Event mit Namen, z. B. „Sommerfest 2026“. Der Name steht oben auf jeder Seite.
+- Buchen geht nur, solange ein Event läuft. Jedes Event startet bei null.
+- Zum Beenden trägt der Admin Kontoinhaber, IBAN und optional einen PayPal.me-Link ein und tippt auf „Fertig“.
+- Danach ist die Liste fest. Niemand kann mehr buchen oder korrigieren.
+- Aus Versehen beendet? Mit **„Event wieder öffnen“** geht es weiter, solange kein neues Event läuft.
+- Ein neues Event versteckt die Abrechnung des alten. Exportiere vorher die CSV. Die App warnt dich vor dem Start.
+- Innerhalb von 10 Sekunden sehen alle Gäste ihre Abrechnung:
+  - Was sie getrunken haben und was es kostet.
+  - Einen QR-Code für die Überweisung („GiroCode“). Die Banking-App füllt damit Empfänger, IBAN, Betrag und Verwendungszweck aus.
+  - Alle Bankdaten mit Knopf zum Kopieren.
+  - Einen PayPal-Knopf mit dem fertigen Betrag.
+
 **Admin**
 - Übersicht: Tabelle Person × Getränk mit **+** und **−**. Aktualisiert sich alle 5 Sekunden.
 - Summen pro Person, pro Getränk und gesamt.
 - Getränke anlegen, umbenennen, Preis ändern, deaktivieren, löschen. Gäste sehen nur aktive Getränke.
 - Preisänderungen gelten nur für neue Buchungen.
 - Personen verwalten: Admin-Rechte geben, Passwort neu setzen, löschen. Beim Löschen entfernt die App auch alle Buchungen dieser Person.
-- Protokoll: jede Buchung mit Uhrzeit. Ein Minus löscht nichts, es markiert die Buchung.
-- CSV-Export für Excel (Trennzeichen `;`, Beträge mit Komma).
+- Protokoll: jede Buchung des aktuellen Events mit Uhrzeit. Ein Minus löscht nichts, es markiert die Buchung.
+- CSV-Export des aktuellen Events für Excel (Trennzeichen `;`, Beträge mit Komma).
 
 ## Lokal starten
 
@@ -151,6 +164,14 @@ Die App ist eine Web-App (PWA). Du brauchst keinen App Store und keinen eigenen 
 
 Danach startet die App wie eine normale App, ohne Browser-Leiste.
 
+## Ablauf einer Feier
+
+1. Admin → Tab **Getränke**: Getränke mit Preis anlegen.
+2. Admin → Tab **Event**: Namen eingeben, **Event starten**.
+3. Gäste registrieren sich und tippen bei jedem Getränk auf **+**.
+4. Am Ende: Admin → Tab **Event** → **Event beenden** → Zahlungsdaten eintragen → **Fertig**.
+5. Die Gäste sehen ihre Abrechnung und bezahlen per Überweisung oder PayPal.
+
 ## Tipp für die Veranstaltung
 
 Drucke einen QR-Code mit der Adresse der App und dem Einladungscode aus.
@@ -160,6 +181,7 @@ Gäste scannen ihn und registrieren sich in 30 Sekunden.
 
 - Server: Node.js 20+, Express 5, SQLite über `@libsql/client` (lokal als Datei oder bei Turso)
 - Oberfläche: HTML, CSS und JavaScript ohne Framework
+- QR-Code: EPC-Standard (GiroCode), erzeugt mit `qrcode` auf dem Server. Die App prüft die IBAN-Prüfziffer.
 - Passwörter: scrypt-Hash. Sitzungen: zufälliges Token im HttpOnly-Cookie, 30 Tage gültig.
 - Login-Schutz: Nach 10 Fehlversuchen in 15 Minuten sperrt die App den Login für diese IP und diesen Benutzernamen.
 - Ein neues Passwort durch den Admin beendet alle Sitzungen der Person.
@@ -168,7 +190,7 @@ Gäste scannen ihn und registrieren sich in 30 Sekunden.
 
 ## Ideen für später
 
-- Mehrere Veranstaltungen getrennt verwalten
-- Abrechnung: „bezahlt“ markieren, Guthaben aufladen
+- „Bezahlt“ markieren, Guthaben aufladen
+- Alte Events ansehen (aktuell zeigt die App nur das neueste Event)
 - QR-Code direkt in der App erzeugen
 - Statistik nach Uhrzeit
