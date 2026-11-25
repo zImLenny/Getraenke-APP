@@ -188,7 +188,6 @@ Gäste scannen ihn und registrieren sich in 30 Sekunden.
 
 ## Ideen für später
 
-- Mehrere Veranstaltungen getrennt verwalten
 - „Bezahlt“ markieren, Guthaben aufladen
 - Alte Events ansehen (aktuell zeigt die App nur das neueste Event)
 - QR-Code direkt in der App erzeugen
