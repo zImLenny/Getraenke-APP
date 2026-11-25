@@ -1,14 +1,13 @@
 const path = require('path');
 const fs = require('fs');
-const Database = require('better-sqlite3');
+const { createClient } = require('@libsql/client');
 
-function openDatabase(file) {
-  if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new Database(file);
-  db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
+// url: "libsql://…" (Turso), "file:pfad.db" (lokal) oder ":memory:" (Tests).
+async function openDatabase(url, authToken) {
+  if (url.startsWith('file:')) fs.mkdirSync(path.dirname(url.slice(5)), { recursive: true });
+  const client = createClient({ url, authToken });
 
-  db.exec(`
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -50,7 +49,18 @@ function openDatabase(file) {
     CREATE INDEX IF NOT EXISTS idx_cons_user_drink ON consumptions(user_id, drink_id) WHERE deleted_at IS NULL;
   `);
 
-  return db;
+  // Gleiche Methoden-Namen wie vorher (get/all/run), nur async.
+  const exec = (sql, args = []) => client.execute({ sql, args });
+  return {
+    get: async (sql, ...args) => (await exec(sql, args)).rows[0],
+    all: async (sql, ...args) => (await exec(sql, args)).rows,
+    run: async (sql, ...args) => {
+      const r = await exec(sql, args);
+      return { changes: r.rowsAffected, lastInsertRowid: Number(r.lastInsertRowid) };
+    },
+    // Mehrere Schreib-Befehle als eine Transaktion.
+    batch: (stmts) => client.batch(stmts.map(([sql, ...args]) => ({ sql, args })), 'write'),
+  };
 }
 
 module.exports = { openDatabase };

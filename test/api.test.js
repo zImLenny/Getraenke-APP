@@ -6,7 +6,7 @@ let server;
 let base;
 
 before(async () => {
-  const app = createApp({ dbFile: ':memory:', adminUsername: 'admin', adminPassword: 'geheim123', registrationCode: 'party' });
+  const app = await createApp({ dbUrl: ':memory:', adminUsername: 'admin', adminPassword: 'geheim123', registrationCode: 'party' });
   await new Promise((r) => { server = app.listen(0, r); });
   base = `http://127.0.0.1:${server.address().port}/api`;
 });
@@ -106,4 +106,17 @@ test('Benutzername ist eindeutig (ohne Groß/Klein)', async () => {
   const c = client();
   assert.equal((await c('/register', { method: 'POST', body: { username: 'Anna', password: 'abcdef', code: 'party' } })).status, 201);
   assert.equal((await client()('/register', { method: 'POST', body: { username: 'anna', password: 'abcdef', code: 'party' } })).status, 409);
+});
+
+test('Admin löscht Person samt Buchungen', async () => {
+  const admin = client();
+  await admin('/login', { method: 'POST', body: { username: 'admin', password: 'geheim123' } });
+  const drinkId = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Wasser', price: '1' } })).data.id;
+  const g = client();
+  await g('/register', { method: 'POST', body: { username: 'tom', password: 'abcdef', code: 'party' } });
+  const id = (await g('/me')).data.user.id;
+  await g('/consumptions', { method: 'POST', body: { drinkId } });
+  assert.equal((await admin(`/admin/users/${id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await g('/me')).data.user, null);
+  assert.ok(!(await admin('/admin/overview')).data.cells.some((c) => c.userId === id));
 });

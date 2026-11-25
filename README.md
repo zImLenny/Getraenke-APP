@@ -48,15 +48,41 @@ npm test
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | Legt den Start-Admin an, solange es keinen Admin gibt. Ohne diese Werte wird die erste registrierte Person Admin. |
 | `REGISTRATION_CODE` | Optional. Gäste brauchen diesen Code zum Registrieren. |
 | `PORT` | Port des Servers. Standard: `3000`. |
-| `DB_FILE` | Pfad zur SQLite-Datei. Standard: `data/getraenke.db`. |
+| `DATABASE_URL` | Adresse der Turso-Datenbank, z. B. `libsql://name-konto.turso.io`. Ohne Wert nutzt die App eine lokale Datei. |
+| `DATABASE_AUTH_TOKEN` | Zugangs-Token für Turso. |
+| `DB_FILE` | Pfad zur lokalen SQLite-Datei, falls `DATABASE_URL` fehlt. Standard: `data/getraenke.db`. |
 | `SECURE_COOKIES` | Auf `true` setzen, sobald die App über HTTPS läuft. |
 
-Alle Daten liegen in **einer** SQLite-Datei. Für ein Backup kopierst du diese Datei.
+Lokal liegen alle Daten in **einer** SQLite-Datei. Mit Turso liegen die Daten in der Cloud.
 
-## Hosting-Optionen
+## Kostenlos online: Turso + Render (0 €)
 
-Die App braucht einen Server mit **dauerhaftem Speicher** für die Datenbank-Datei.
-Anbieter ohne dauerhaften Speicher (z. B. reines Serverless) passen nicht.
+Turso speichert die Daten. Render führt die App aus. Beide haben einen Gratis-Tarif.
+
+**1. Datenbank bei Turso anlegen**
+
+1. Auf turso.tech ein Konto anlegen.
+2. Eine Datenbank anlegen, Region Frankfurt.
+3. Die Datenbank-URL kopieren (`libsql://…`).
+4. Ein Token erzeugen und kopieren.
+
+**2. App bei Render starten**
+
+1. Auf render.com ein Konto anlegen und GitHub verbinden.
+2. „New Web Service“ wählen und dieses Repository auswählen.
+3. Build Command: `npm ci`. Start Command: `npm start`. Instance Type: Free.
+4. Variablen setzen: `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SECURE_COOKIES=true`, optional `REGISTRATION_CODE`.
+5. Render gibt dir eine HTTPS-Adresse, z. B. `https://getraenke.onrender.com`.
+
+**Grenzen des Gratis-Tarifs**
+
+- Render schläft nach 15 Minuten ohne Besucher. Der erste Aufruf danach dauert bis zu 1 Minute.
+- Öffne die App also kurz vor der Feier einmal selbst.
+- Die Daten bleiben trotzdem erhalten, denn sie liegen bei Turso.
+
+## Weitere Hosting-Optionen
+
+Ohne Turso braucht die App einen Server mit **dauerhaftem Speicher** für die Datenbank-Datei.
 
 | Option | Kosten (ca.) | Aufwand | Für wen |
 |---|---|---|---|
@@ -101,6 +127,24 @@ Caddy holt automatisch ein HTTPS-Zertifikat für die Domain aus `.env`.
 
 Nachteil: Der Rechner muss die ganze Zeit laufen und Internet haben.
 
+## App aufs Telefon bringen
+
+Die App ist eine Web-App (PWA). Du brauchst keinen App Store und keinen eigenen Build.
+
+**Android (Chrome)**
+
+1. Die Adresse der App öffnen.
+2. Menü ⋮ antippen.
+3. „App installieren“ oder „Zum Startbildschirm hinzufügen“ wählen.
+
+**iPhone (Safari)**
+
+1. Die Adresse der App in Safari öffnen.
+2. Teilen-Knopf antippen.
+3. „Zum Home-Bildschirm“ wählen.
+
+Danach startet die App wie eine normale App, ohne Browser-Leiste.
+
 ## Tipp für die Veranstaltung
 
 Drucke einen QR-Code mit der Adresse der App und dem Einladungscode aus.
@@ -108,7 +152,7 @@ Gäste scannen ihn und registrieren sich in 30 Sekunden.
 
 ## Technik
 
-- Server: Node.js, Express, SQLite (`better-sqlite3`)
+- Server: Node.js, Express, SQLite über `@libsql/client` (lokal als Datei oder bei Turso)
 - Oberfläche: HTML, CSS und JavaScript ohne Framework
 - Passwörter: scrypt-Hash. Sitzungen: zufälliges Token im HttpOnly-Cookie.
 
