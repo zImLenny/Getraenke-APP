@@ -20,6 +20,7 @@ function str(value, field, { min = 1, max = 100 } = {}) {
 }
 
 function priceToCents(value) {
+  if (String(value).trim() === '') throw new HttpError(400, 'Preis fehlt.');
   const n = typeof value === 'string' ? Number(value.replace(',', '.')) : Number(value);
   if (!Number.isFinite(n) || n < 0 || n > 10000) throw new HttpError(400, 'Preis ungültig.');
   return Math.round(n * 100);
@@ -46,6 +47,8 @@ function createLoginLimiter() {
       const e = fails.get(key);
       if (!e || Date.now() - e.first > WINDOW) fails.set(key, { first: Date.now(), count: 1 });
       else e.count++;
+      // Speicher begrenzen: abgelaufene Einträge entfernen.
+      if (fails.size > 10000) for (const [k, v] of fails) if (Date.now() - v.first > WINDOW) fails.delete(k);
     },
     reset(key) {
       fails.delete(key);
@@ -86,9 +89,8 @@ async function createApp(config = {}) {
     res.setHeader('X-Frame-Options', 'DENY');
     next();
   });
-  app.use(auth.middleware);
-
   const api = express.Router();
+  api.use(auth.middleware); // nur API: statische Dateien brauchen keine Sitzung
 
   // ---------- Konto ----------
 
@@ -215,7 +217,7 @@ async function createApp(config = {}) {
   });
 
   admin.get('/log', async (req, res) => {
-    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const limit = Math.max(1, Math.min(Number(req.query.limit) || 100, 500));
     const rows = await db.all(`
       SELECT c.id, c.created_at AS createdAt, c.deleted_at AS deletedAt, c.price_cents AS priceCents,
              u.display_name AS userName, d.name AS drinkName,
@@ -235,7 +237,8 @@ async function createApp(config = {}) {
       FROM consumptions c JOIN users u ON u.id = c.user_id JOIN drinks d ON d.id = c.drink_id
       WHERE c.deleted_at IS NULL
       GROUP BY c.user_id, c.drink_id ORDER BY u.display_name COLLATE NOCASE, d.sort_order, d.name`);
-    const esc = (v) => `"${String(v).replace(/"/g, '""')}"`;
+    // ' vor =+-@ verhindert, dass Excel Namen als Formel ausführt.
+    const esc = (v) => `"${String(v).replace(/^[=+\-@]/, "'$&").replace(/"/g, '""')}"`;
     const lines = ['Person;Benutzername;Getränk;Anzahl;Betrag (EUR)'];
     for (const r of rows) {
       lines.push([esc(r.person), esc(r.username), esc(r.drink), r.count, (r.cents / 100).toFixed(2).replace('.', ',')].join(';'));
@@ -261,8 +264,7 @@ async function createApp(config = {}) {
     const name = req.body.name !== undefined ? str(req.body.name, 'Name', { max: 50 }) : drink.name;
     const price = req.body.price !== undefined ? priceToCents(req.body.price) : drink.price_cents;
     const active = req.body.active !== undefined ? (req.body.active ? 1 : 0) : drink.active;
-    const sort = req.body.sortOrder !== undefined ? Number(req.body.sortOrder) || 0 : drink.sort_order;
-    await db.run('UPDATE drinks SET name = ?, price_cents = ?, active = ?, sort_order = ? WHERE id = ?', name, price, active, sort, id);
+    await db.run('UPDATE drinks SET name = ?, price_cents = ?, active = ? WHERE id = ?', name, price, active, id);
     res.json({ ok: true });
   });
 

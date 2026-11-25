@@ -70,9 +70,10 @@ Turso speichert die Daten. Render führt die App aus. Beide haben einen Gratis-T
 
 1. Auf render.com ein Konto anlegen und GitHub verbinden.
 2. „New Web Service“ wählen und dieses Repository auswählen.
-3. Build Command: `npm ci`. Start Command: `npm start`. Instance Type: Free.
-4. Variablen setzen: `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SECURE_COOKIES=true`, optional `REGISTRATION_CODE`.
-5. Render gibt dir eine HTTPS-Adresse, z. B. `https://getraenke.onrender.com`.
+3. Region: **Frankfurt (EU Central)**, also dieselbe Region wie Turso. Sonst dauert jeder Tipp fast 1 Sekunde.
+4. Build Command: `npm ci`. Start Command: `npm start`. Instance Type: Free.
+5. Variablen setzen: `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SECURE_COOKIES=true`, optional `REGISTRATION_CODE`.
+6. Render gibt dir eine HTTPS-Adresse, z. B. `https://getraenke.onrender.com`.
 
 **Grenzen des Gratis-Tarifs**
 
