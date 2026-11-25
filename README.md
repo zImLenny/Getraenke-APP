@@ -10,16 +10,16 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 - Für jedes Getränk einen großen **+**-Knopf. Es gibt **kein Minus**.
 - Eigene Anzahl und eigene Summe in Euro sehen.
 - Schutz gegen Doppel-Tipp (0,8 Sekunden).
-- Läuft im Browser. Gäste können die Seite zum Startbildschirm hinzufügen (PWA).
+- Läuft im Browser. Gäste können die Seite zum Startbildschirm hinzufügen (siehe [App aufs Telefon bringen](#app-aufs-telefon-bringen)).
 
 **Admin**
 - Übersicht: Tabelle Person × Getränk mit **+** und **−**. Aktualisiert sich alle 5 Sekunden.
 - Summen pro Person, pro Getränk und gesamt.
-- Getränke anlegen, umbenennen, Preis ändern, deaktivieren, löschen.
+- Getränke anlegen, umbenennen, Preis ändern, deaktivieren, löschen. Gäste sehen nur aktive Getränke.
 - Preisänderungen gelten nur für neue Buchungen.
-- Personen verwalten: Admin-Rechte geben, Passwort neu setzen, löschen.
+- Personen verwalten: Admin-Rechte geben, Passwort neu setzen, löschen. Beim Löschen entfernt die App auch alle Buchungen dieser Person.
 - Protokoll: jede Buchung mit Uhrzeit. Ein Minus löscht nichts, es markiert die Buchung.
-- CSV-Export für Excel.
+- CSV-Export für Excel (Trennzeichen `;`, Beträge mit Komma).
 
 ## Lokal starten
 
@@ -48,15 +48,47 @@ npm test
 | `ADMIN_USERNAME`, `ADMIN_PASSWORD` | Legt den Start-Admin an, solange es keinen Admin gibt. Ohne diese Werte wird die erste registrierte Person Admin. |
 | `REGISTRATION_CODE` | Optional. Gäste brauchen diesen Code zum Registrieren. |
 | `PORT` | Port des Servers. Standard: `3000`. |
-| `DB_FILE` | Pfad zur SQLite-Datei. Standard: `data/getraenke.db`. |
+| `DATABASE_URL` | Adresse der Turso-Datenbank, z. B. `libsql://name-konto.turso.io`. Ohne Wert nutzt die App eine lokale Datei. |
+| `DATABASE_AUTH_TOKEN` | Zugangs-Token für Turso. |
+| `DB_FILE` | Pfad zur lokalen SQLite-Datei, falls `DATABASE_URL` fehlt. Standard: `data/getraenke.db`. |
 | `SECURE_COOKIES` | Auf `true` setzen, sobald die App über HTTPS läuft. |
 
-Alle Daten liegen in **einer** SQLite-Datei. Für ein Backup kopierst du diese Datei.
+Lokal liegen alle Daten in **einer** SQLite-Datei. Mit Turso liegen die Daten in der Cloud.
 
-## Hosting-Optionen
+**Backup**
+- Lokale Datei: Kopiere `data/getraenke.db`, während die App nicht läuft.
+- Turso: Exportiere die Daten mit der Turso-CLI: `turso db shell <name> .dump > backup.sql`.
 
-Die App braucht einen Server mit **dauerhaftem Speicher** für die Datenbank-Datei.
-Anbieter ohne dauerhaften Speicher (z. B. reines Serverless) passen nicht.
+## Kostenlos online: Turso + Render (0 €)
+
+Turso speichert die Daten. Render führt die App aus. Beide haben einen Gratis-Tarif.
+
+**1. Datenbank bei Turso anlegen**
+
+1. Auf turso.tech ein Konto anlegen.
+2. Eine Datenbank anlegen, Region Frankfurt.
+3. Die Datenbank-URL kopieren (`libsql://…`).
+4. Ein Token erzeugen und kopieren.
+
+**2. App bei Render starten**
+
+1. Auf render.com ein Konto anlegen und GitHub verbinden.
+2. „New Web Service“ wählen und dieses Repository auswählen.
+3. Region: **Frankfurt (EU Central)**, also dieselbe Region wie Turso. Sonst dauert jeder Tipp fast 1 Sekunde.
+4. Build Command: `npm ci`. Start Command: `npm start`. Instance Type: Free.
+5. Variablen setzen: `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SECURE_COOKIES=true`, optional `REGISTRATION_CODE`.
+6. Render gibt dir eine HTTPS-Adresse, z. B. `https://getraenke.onrender.com`.
+
+**Grenzen des Gratis-Tarifs**
+
+- Render schläft nach 15 Minuten ohne Besucher. Der erste Aufruf danach dauert bis zu 1 Minute.
+- Öffne die App also kurz vor der Feier einmal selbst.
+- Die Daten bleiben trotzdem erhalten, denn sie liegen bei Turso.
+
+## Weitere Hosting-Optionen
+
+Alle Optionen funktionieren auch mit Turso. Dann setzt du `DATABASE_URL` und `DATABASE_AUTH_TOKEN` und brauchst kein Volume.
+Ohne Turso braucht die App einen Server mit **dauerhaftem Speicher** für die Datenbank-Datei.
 
 | Option | Kosten (ca.) | Aufwand | Für wen |
 |---|---|---|---|
@@ -64,12 +96,12 @@ Anbieter ohne dauerhaften Speicher (z. B. reines Serverless) passen nicht.
 | **B. Hetzner Cloud VPS** | ca. 4–6 €/Monat | mittel | Dauerhaft, günstig, Server in Deutschland (DSGVO) |
 | **C. Eigener Rechner + Cloudflare Tunnel** | 0 € | mittel | Einmalige Feier, Rechner läuft vor Ort |
 
-**Empfehlung:** Für den Start Option A. Für dauerhaften Betrieb und mehr Funktionen Option B.
+**Empfehlung:** Für den Start die Gratis-Option Turso + Render. Ohne Wartezeit nach Pausen Option A. Für dauerhaften Betrieb in Deutschland Option B.
 
 ### A. Railway oder Fly.io
 
 1. Repository mit dem Anbieter verbinden. Der Anbieter baut das `Dockerfile` automatisch.
-2. Ein **Volume** anlegen und unter `/data` einhängen.
+2. Ein **Volume** anlegen und unter `/data` einhängen. Mit Turso entfällt dieser Schritt.
 3. Variablen setzen: `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `SECURE_COOKIES=true`, optional `REGISTRATION_CODE`.
 4. Der Anbieter gibt dir eine HTTPS-Adresse. Diese Adresse teilst du mit den Gästen.
 
@@ -101,6 +133,24 @@ Caddy holt automatisch ein HTTPS-Zertifikat für die Domain aus `.env`.
 
 Nachteil: Der Rechner muss die ganze Zeit laufen und Internet haben.
 
+## App aufs Telefon bringen
+
+Die App ist eine Web-App (PWA). Du brauchst keinen App Store und keinen eigenen Build.
+
+**Android (Chrome)**
+
+1. Die Adresse der App öffnen.
+2. Menü ⋮ antippen.
+3. „App installieren“ oder „Zum Startbildschirm hinzufügen“ wählen.
+
+**iPhone (Safari)**
+
+1. Die Adresse der App in Safari öffnen.
+2. Teilen-Knopf antippen.
+3. „Zum Home-Bildschirm“ wählen.
+
+Danach startet die App wie eine normale App, ohne Browser-Leiste.
+
 ## Tipp für die Veranstaltung
 
 Drucke einen QR-Code mit der Adresse der App und dem Einladungscode aus.
@@ -108,9 +158,13 @@ Gäste scannen ihn und registrieren sich in 30 Sekunden.
 
 ## Technik
 
-- Server: Node.js, Express, SQLite (`better-sqlite3`)
+- Server: Node.js 20+, Express 5, SQLite über `@libsql/client` (lokal als Datei oder bei Turso)
 - Oberfläche: HTML, CSS und JavaScript ohne Framework
-- Passwörter: scrypt-Hash. Sitzungen: zufälliges Token im HttpOnly-Cookie.
+- Passwörter: scrypt-Hash. Sitzungen: zufälliges Token im HttpOnly-Cookie, 30 Tage gültig.
+- Login-Schutz: Nach 10 Fehlversuchen in 15 Minuten sperrt die App den Login für diese IP und diesen Benutzernamen.
+- Ein neues Passwort durch den Admin beendet alle Sitzungen der Person.
+- Der CSV-Export entschärft Namen, die mit `=`, `+`, `-` oder `@` beginnen. Excel führt sie dann nicht als Formel aus.
+- Tests: `npm test` startet die App mit einer Datenbank im Arbeitsspeicher.
 
 ## Ideen für später
 

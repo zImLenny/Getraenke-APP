@@ -6,7 +6,7 @@ let server;
 let base;
 
 before(async () => {
-  const app = createApp({ dbFile: ':memory:', adminUsername: 'admin', adminPassword: 'geheim123', registrationCode: 'party' });
+  const app = await createApp({ dbUrl: ':memory:', adminUsername: 'admin', adminPassword: 'geheim123', registrationCode: 'party' });
   await new Promise((r) => { server = app.listen(0, r); });
   base = `http://127.0.0.1:${server.address().port}/api`;
 });
@@ -106,4 +106,45 @@ test('Benutzername ist eindeutig (ohne Groß/Klein)', async () => {
   const c = client();
   assert.equal((await c('/register', { method: 'POST', body: { username: 'Anna', password: 'abcdef', code: 'party' } })).status, 201);
   assert.equal((await client()('/register', { method: 'POST', body: { username: 'anna', password: 'abcdef', code: 'party' } })).status, 409);
+});
+
+test('Login-Sperre nach 10 Fehlversuchen, Passwort-Reset beendet Sitzungen', async () => {
+  const g = client();
+  await g('/register', { method: 'POST', body: { username: 'lisa', password: 'abcdef', code: 'party' } });
+  const id = (await g('/me')).data.user.id;
+  const admin = client();
+  await admin('/login', { method: 'POST', body: { username: 'admin', password: 'geheim123' } });
+  assert.equal((await admin(`/admin/users/${id}`, { method: 'PUT', body: { password: 'neues-pw' } })).status, 200);
+  assert.equal((await g('/me')).data.user, null);
+
+  const bad = client();
+  for (let i = 0; i < 10; i++) {
+    assert.equal((await bad('/login', { method: 'POST', body: { username: 'lisa', password: 'falsch' } })).status, 401);
+  }
+  assert.equal((await bad('/login', { method: 'POST', body: { username: 'lisa', password: 'neues-pw' } })).status, 429);
+});
+
+test('leerer Preis wird abgelehnt, CSV entschärft Formeln', async () => {
+  const admin = client();
+  await admin('/login', { method: 'POST', body: { username: 'admin', password: 'geheim123' } });
+  const id = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Saft', price: '2' } })).data.id;
+  assert.equal((await admin(`/admin/drinks/${id}`, { method: 'PUT', body: { name: 'Saft', price: '' } })).status, 400);
+
+  const g = client();
+  await g('/register', { method: 'POST', body: { username: 'evil', displayName: '=1+1', password: 'abcdef', code: 'party' } });
+  await g('/consumptions', { method: 'POST', body: { drinkId: id } });
+  assert.match((await admin('/admin/export.csv')).data, /"'=1\+1";"evil";"Saft";1;2,00/);
+});
+
+test('Admin löscht Person samt Buchungen', async () => {
+  const admin = client();
+  await admin('/login', { method: 'POST', body: { username: 'admin', password: 'geheim123' } });
+  const drinkId = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Wasser', price: '1' } })).data.id;
+  const g = client();
+  await g('/register', { method: 'POST', body: { username: 'tom', password: 'abcdef', code: 'party' } });
+  const id = (await g('/me')).data.user.id;
+  await g('/consumptions', { method: 'POST', body: { drinkId } });
+  assert.equal((await admin(`/admin/users/${id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await g('/me')).data.user, null);
+  assert.ok(!(await admin('/admin/overview')).data.cells.some((c) => c.userId === id));
 });

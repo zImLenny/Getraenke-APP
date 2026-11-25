@@ -29,16 +29,7 @@ function parseCookies(header) {
 }
 
 function createAuth(db, { secureCookies }) {
-  const stmts = {
-    insert: db.prepare(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, datetime('now', ?))`),
-    find: db.prepare(`
-      SELECT u.id, u.username, u.display_name AS displayName, u.is_admin AS isAdmin
-      FROM sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.token = ? AND s.expires_at > datetime('now')`),
-    remove: db.prepare(`DELETE FROM sessions WHERE token = ?`),
-    purge: db.prepare(`DELETE FROM sessions WHERE expires_at <= datetime('now')`),
-  };
-  stmts.purge.run();
+  db.run(`DELETE FROM sessions WHERE expires_at <= datetime('now')`).catch(console.error);
 
   function setCookie(res, token, maxAgeSec) {
     const parts = [`${COOKIE}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSec}`];
@@ -47,20 +38,24 @@ function createAuth(db, { secureCookies }) {
   }
 
   return {
-    login(res, userId) {
+    async login(res, userId) {
       const token = crypto.randomBytes(32).toString('hex');
-      stmts.insert.run(token, userId, `+${SESSION_DAYS} days`);
+      await db.run(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, datetime('now', ?))`,
+        token, userId, `+${SESSION_DAYS} days`);
       setCookie(res, token, SESSION_DAYS * 86400);
     },
-    logout(req, res) {
+    async logout(req, res) {
       const token = parseCookies(req.headers.cookie)[COOKIE];
-      if (token) stmts.remove.run(token);
+      if (token) await db.run(`DELETE FROM sessions WHERE token = ?`, token);
       setCookie(res, '', 0);
     },
     // Hängt req.user an, falls eine gültige Sitzung existiert.
-    middleware(req, _res, next) {
+    async middleware(req, _res, next) {
       const token = parseCookies(req.headers.cookie)[COOKIE];
-      const user = token ? stmts.find.get(token) : null;
+      const user = token ? await db.get(`
+        SELECT u.id, u.username, u.display_name AS displayName, u.is_admin AS isAdmin
+        FROM sessions s JOIN users u ON u.id = s.user_id
+        WHERE s.token = ? AND s.expires_at > datetime('now')`, token) : null;
       req.user = user ? { ...user, isAdmin: !!user.isAdmin } : null;
       next();
     },
