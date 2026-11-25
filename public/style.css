@@ -31,6 +31,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -154,6 +155,15 @@ tfoot td { font-weight: 700; background: var(--surface-2); }
 .stats .card { padding: 12px; }
 .stat .v { font-size: clamp(1.05rem, 4.5vw, 1.5rem); font-weight: 700; font-variant-numeric: tabular-nums; }
 .stat .l { color: var(--muted); font-size: .85rem; }
+
+/* Event und Abrechnung */
+.eventbar {
+  text-align: center; font-weight: 700; padding: 8px 16px;
+  background: var(--accent-soft); border-bottom: 1px solid var(--border);
+}
+.qr { display: block; margin: 0 auto; max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
+.copyrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.copyrow .num { overflow-wrap: anywhere; }
 
 #toast {
   position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(20px);

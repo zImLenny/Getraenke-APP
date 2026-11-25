@@ -5,8 +5,10 @@
 const $app = document.getElementById('app');
 const $nav = document.getElementById('nav');
 const $toast = document.getElementById('toast');
+const $eventbar = document.getElementById('eventbar');
 const euro = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
 const fmt = (cents) => euro.format((cents || 0) / 100);
+const time = (s) => new Date(s.replace(' ', 'T') + 'Z').toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 
 // Baut DOM-Elemente ohne innerHTML (kein XSS durch Benutzernamen).
 function h(tag, attrs = {}, ...children) {
@@ -55,9 +57,17 @@ function vibrate() {
 
 // ---------- Zustand und Routing ----------
 
-const state = { user: null, config: {}, pollTimer: null };
+const state = { user: null, event: null, config: {}, pollTimer: null };
+
+// Name des Events steht oben auf jeder Seite.
+function setEvent(ev) {
+  state.event = ev;
+  $eventbar.hidden = !state.user || !ev;
+  if (ev) $eventbar.textContent = ev.name + (ev.endedAt ? ' · beendet' : '');
+}
 
 function setNav() {
+  setEvent(state.event);
   $nav.replaceChildren();
   if (!state.user) return;
   const here = location.hash || '#/';
@@ -138,8 +148,25 @@ function field(labelText, name, type, autocomplete) {
 
 // ---------- Gast-Ansicht: nur Plus ----------
 
+const eventKey = (ev) => (ev ? `${ev.id}:${ev.endedAt || ''}` : '');
+
 async function renderGuest() {
   const [{ drinks }, summary] = await Promise.all([api('/drinks'), api('/me/summary')]);
+  setEvent(summary.event);
+  // Startet oder endet das Event, wechselt die Ansicht von selbst.
+  const key = eventKey(summary.event);
+  clearInterval(state.pollTimer);
+  state.pollTimer = setInterval(async () => {
+    const s = await api('/me/summary').catch(() => null);
+    if (s && eventKey(s.event) !== key) route();
+  }, 10000);
+
+  if (!summary.event) {
+    $app.replaceChildren(h('div', { class: 'card muted center' }, 'Gerade läuft kein Event. Bitte warte, bis der Admin es startet.'));
+    return;
+  }
+  if (summary.event.endedAt) return renderBill(summary);
+
   const counts = new Map(summary.perDrink.map((r) => [r.drinkId, r.count]));
   const totalCount = h('span', { class: 'num' });
   const totalSum = h('span', { class: 'num' });
@@ -183,10 +210,46 @@ async function renderGuest() {
   );
 }
 
+// ---------- Abrechnung nach dem Event ----------
+
+function renderBill(s) {
+  const p = s.payment;
+  const copyRow = (label, value) => h('div', { class: 'copyrow' },
+    h('div', {}, h('div', { class: 'muted small' }, label), h('div', { class: 'num' }, value)),
+    h('button', { class: 'btn sm', onclick: () => navigator.clipboard.writeText(value)
+      .then(() => toast(`${label} kopiert`), () => toast('Kopieren geht hier nicht.', true)) }, 'Kopieren'));
+
+  $app.replaceChildren(
+    h('div', { class: 'hello' },
+      h('h1', {}, 'Der Abend ist vorbei!'),
+      h('span', { class: 'muted small' }, `Danke, ${state.user.displayName}.`)),
+    h('div', { class: 'scroll' }, h('table', {},
+      h('tbody', {}, s.perDrink.map((r) => h('tr', {},
+        h('td', {}, `${r.count} × ${r.name}`),
+        h('td', { class: 'right num' }, fmt(r.totalCents))))),
+      h('tfoot', {}, h('tr', {}, h('td', {}, 'Gesamt'), h('td', { class: 'right num' }, fmt(s.totalCents)))))),
+    h('div', { style: 'height:12px' }),
+    !p
+      ? h('div', { class: 'card center' }, 'Du musst nichts bezahlen.')
+      : h('div', { class: 'card stack' },
+          h('h2', {}, `Bitte ${fmt(p.amountCents)} bezahlen`),
+          p.paypalUrl && h('a', { class: 'btn primary block', href: p.paypalUrl, target: '_blank', rel: 'noopener' }, 'Mit PayPal bezahlen'),
+          p.qr && [
+            h('p', { class: 'muted small' }, 'Überweisung: Scanne den QR-Code mit deiner Banking-App (Funktion „GiroCode“ oder „Foto-Überweisung“). Auf dem eigenen Handy: Mach einen Screenshot und öffne ihn in der Banking-App, oder kopiere die Daten.'),
+            h('img', { class: 'qr', src: p.qr, alt: 'QR-Code für die Überweisung', width: 260, height: 260 }),
+            copyRow('Empfänger', p.payeeName),
+            copyRow('IBAN', p.iban),
+            copyRow('Betrag', (p.amountCents / 100).toFixed(2).replace('.', ',')),
+            copyRow('Verwendungszweck', p.reference),
+          ]),
+  );
+}
+
 // ---------- Admin ----------
 
 const ADMIN_TABS = [
   ['overview', 'Übersicht'],
+  ['event', 'Event'],
   ['drinks', 'Getränke'],
   ['users', 'Personen'],
   ['log', 'Protokoll'],
@@ -199,17 +262,23 @@ function renderAdmin(tab) {
       ADMIN_TABS.map(([key, label]) =>
         h('button', { class: key === tab ? 'active' : '', role: 'tab', onclick: () => (location.hash = `#/admin/${key}`) }, label))),
     body);
-  const views = { overview: adminOverview, drinks: adminDrinks, users: adminUsers, log: adminLog };
+  const views = { overview: adminOverview, event: adminEvent, drinks: adminDrinks, users: adminUsers, log: adminLog };
   (views[tab] || adminOverview)(body).catch((ex) => toast(ex.message, true));
 }
 
 async function adminOverview(body) {
   async function load() {
     const data = await api('/admin/overview');
+    setEvent(data.event);
     draw(data);
   }
 
-  function draw({ users, drinks, cells }) {
+  function draw({ event, users, drinks, cells }) {
+    if (!event) {
+      body.replaceChildren(h('div', { class: 'card muted center' }, 'Noch kein Event. Starte eins im Tab „Event“.'));
+      return;
+    }
+    const open = !event.endedAt;
     const map = new Map(cells.map((c) => [`${c.userId}:${c.drinkId}`, c]));
     // Inaktive Getränke nur zeigen, wenn es Buchungen dafür gibt.
     const cols = drinks.filter((d) => d.active || cells.some((c) => c.drinkId === d.id));
@@ -225,7 +294,7 @@ async function adminOverview(body) {
         rowCents += c ? c.totalCents : 0;
         grandCount += n;
         colTotals.set(d.id, (colTotals.get(d.id) || 0) + n);
-        return h('td', { class: 'cell' }, stepper(u, d, n));
+        return h('td', { class: 'cell' }, open ? stepper(u, d, n) : h('span', { class: 'num' }, n));
       });
       grandCents += rowCents;
       return h('tr', {},
@@ -241,7 +310,7 @@ async function adminOverview(body) {
         stat(grandCount, 'Getränke gesamt'),
         stat(fmt(grandCents), 'Umsatz gesamt')),
       h('div', { class: 'toolbar' },
-        h('span', { class: 'muted small' }, 'Aktualisiert sich alle 5 Sekunden.'),
+        h('span', { class: 'muted small' }, open ? 'Aktualisiert sich alle 5 Sekunden.' : 'Event beendet. Die Liste ist fest.'),
         h('a', { class: 'btn sm', href: '/api/admin/export.csv' }, 'CSV-Export')),
       cols.length === 0
         ? h('div', { class: 'card muted center' }, 'Noch keine Getränke. Lege sie im Tab „Getränke“ an.')
@@ -279,6 +348,58 @@ async function adminOverview(body) {
 
 function stat(value, label) {
   return h('div', { class: 'card stat' }, h('div', { class: 'v' }, value), h('div', { class: 'l' }, label));
+}
+
+function inputField(labelText, name, value, placeholder) {
+  const id = 'f_' + name;
+  return h('div', {}, h('label', { for: id }, labelText),
+    h('input', { id, name, type: 'text', value, placeholder, autocomplete: 'off', autocapitalize: 'none' }));
+}
+
+async function adminEvent(body) {
+  const [{ event }, settings] = await Promise.all([api('/admin/overview'), api('/admin/settings')]);
+  setEvent(event);
+  const err = h('p', { class: 'error' });
+
+  if (!event || event.endedAt) {
+    const form = h('form', { class: 'stack', onsubmit: async (e) => {
+      e.preventDefault();
+      try {
+        await api('/admin/events', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
+        toast('Event gestartet');
+        adminEvent(body);
+      } catch (ex) { err.textContent = ex.message; }
+    } },
+      inputField('Name des Events', 'name', '', 'z. B. Sommerfest 2026'),
+      err,
+      h('button', { class: 'btn primary block', type: 'submit' }, 'Event starten'));
+    body.replaceChildren(
+      event ? h('p', { class: 'muted small' }, `Letztes Event: ${event.name}, beendet am ${time(event.endedAt)}.`) : null,
+      h('div', { class: 'card stack' }, h('h2', {}, 'Neues Event'), form));
+    return;
+  }
+
+  const endForm = h('form', { class: 'stack', hidden: true, onsubmit: async (e) => {
+    e.preventDefault();
+    if (!confirm(`„${event.name}“ beenden? Danach kann niemand mehr buchen.`)) return;
+    try {
+      await api('/admin/events/end', { method: 'POST', body: Object.fromEntries(new FormData(endForm)) });
+      toast('Event beendet. Die Gäste sehen jetzt ihre Abrechnung.');
+      adminEvent(body);
+    } catch (ex) { err.textContent = ex.message; }
+  } },
+    h('p', { class: 'muted small' }, 'Trage deine Zahlungsdaten ein. Die Gäste sehen danach ihre Summe, einen QR-Code für die Überweisung und den PayPal-Link.'),
+    inputField('Kontoinhaber', 'payeeName', settings.payeeName, 'Vorname Nachname'),
+    inputField('IBAN', 'iban', settings.iban, 'DE12 3456 …'),
+    inputField('PayPal.me-Link (optional)', 'paypal', settings.paypal && `paypal.me/${settings.paypal}`, 'paypal.me/deinname'),
+    err,
+    h('button', { class: 'btn primary block', type: 'submit' }, 'Fertig'));
+
+  body.replaceChildren(h('div', { class: 'card stack' },
+    h('h2', {}, `Läuft: ${event.name}`),
+    h('p', { class: 'muted small' }, `Gestartet am ${time(event.startedAt)}.`),
+    h('button', { class: 'btn danger', onclick: (e) => { e.currentTarget.hidden = true; endForm.hidden = false; } }, 'Event beenden'),
+    endForm));
 }
 
 async function adminDrinks(body) {
@@ -371,9 +492,8 @@ async function adminUsers(body) {
 
 async function adminLog(body) {
   const { log } = await api('/admin/log?limit=200');
-  const time = (s) => new Date(s.replace(' ', 'T') + 'Z').toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
   body.replaceChildren(
-    h('p', { class: 'muted small' }, 'Letzte 200 Buchungen. Durchgestrichen = vom Admin entfernt.'),
+    h('p', { class: 'muted small' }, 'Letzte 200 Buchungen des aktuellen Events. Durchgestrichen = vom Admin entfernt.'),
     log.length === 0
       ? h('div', { class: 'card muted center' }, 'Noch keine Buchungen.')
       : h('div', { class: 'scroll' }, h('table', {},
@@ -391,8 +511,9 @@ async function adminLog(body) {
 // ---------- Start ----------
 
 async function loadMe() {
-  const { user } = await api('/me');
+  const { user, event } = await api('/me');
   state.user = user;
+  state.event = event;
 }
 
 (async function init() {

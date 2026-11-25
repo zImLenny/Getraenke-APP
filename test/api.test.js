@@ -45,6 +45,11 @@ test('kompletter Ablauf: Admin legt Getränk an, Gast bucht, Admin korrigiert', 
   assert.equal(bier.status, 201);
   const bierId = bier.data.id;
 
+  // Ohne Event kann niemand buchen
+  assert.equal((await admin('/admin/consumptions', { method: 'POST', body: { userId: 1, drinkId: bierId } })).status, 409);
+  assert.equal((await admin('/admin/events', { method: 'POST', body: { name: 'Testabend' } })).status, 201);
+  assert.equal((await admin('/admin/events', { method: 'POST', body: { name: 'Doppelt' } })).status, 409);
+
   // Registrierung nur mit richtigem Code
   assert.equal((await guest('/register', { method: 'POST', body: { username: 'max', password: 'abcdef', code: 'nope' } })).status, 403);
   assert.equal((await guest('/register', { method: 'POST', body: { username: 'max', displayName: 'Max', password: 'abcdef', code: 'party' } })).status, 201);
@@ -147,4 +152,43 @@ test('Admin löscht Person samt Buchungen', async () => {
   assert.equal((await admin(`/admin/users/${id}`, { method: 'DELETE' })).status, 200);
   assert.equal((await g('/me')).data.user, null);
   assert.ok(!(await admin('/admin/overview')).data.cells.some((c) => c.userId === id));
+});
+
+test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPal', async () => {
+  const admin = client();
+  await admin('/login', { method: 'POST', body: { username: 'admin', password: 'geheim123' } });
+  const drinkId = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Cola', price: '2,50' } })).data.id;
+  const g = client();
+  await g('/register', { method: 'POST', body: { username: 'paula', displayName: 'Paula', password: 'abcdef', code: 'party' } });
+  await g('/consumptions', { method: 'POST', body: { drinkId } });
+  assert.equal((await g('/me/summary')).data.payment, null);
+
+  const end = (body) => admin('/admin/events/end', { method: 'POST', body });
+  assert.equal((await end({})).status, 400);
+  assert.equal((await end({ payeeName: 'Lenny', iban: 'DE89370400440532013001' })).status, 400); // Prüfziffer falsch
+  assert.equal((await end({ iban: 'DE89 3704 0044 0532 0130 00' })).status, 400); // Name fehlt
+  assert.equal((await end({ paypal: 'javascript:alert(1)' })).status, 400);
+  assert.equal((await end({ payeeName: 'Lenny', iban: 'de89 3704 0044 0532 0130 00', paypal: 'https://paypal.me/lenny' })).status, 200);
+  assert.equal((await end({ paypal: 'lenny' })).status, 409); // schon beendet
+
+  const s = (await g('/me/summary')).data;
+  assert.ok(s.event.endedAt);
+  assert.equal(s.totalCents, 250);
+  assert.equal(s.perDrink[0].name, 'Cola');
+  assert.equal(s.payment.iban, 'DE89370400440532013000');
+  assert.equal(s.payment.paypalUrl, 'https://paypal.me/lenny/2.50EUR');
+  assert.match(s.payment.qr, /^data:image\/png;base64,/);
+  assert.match(s.payment.reference, /Paula/);
+
+  // Liste ist fest
+  await sleep(900); // Doppel-Tipp-Schutz abwarten
+  assert.equal((await g('/consumptions', { method: 'POST', body: { drinkId } })).status, 409);
+  assert.equal((await admin('/admin/consumptions', { method: 'POST', body: { userId: 1, drinkId } })).status, 409);
+  assert.equal((await admin('/admin/settings')).data.paypal, 'lenny');
+
+  // Neues Event startet bei null
+  assert.equal((await admin('/admin/events', { method: 'POST', body: { name: 'Abend 2' } })).status, 201);
+  const s2 = (await g('/me/summary')).data;
+  assert.equal(s2.event.name, 'Abend 2');
+  assert.equal(s2.totalCents, 0);
 });
