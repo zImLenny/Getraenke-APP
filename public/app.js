@@ -713,7 +713,7 @@ async function adminDrinks(body) {
 }
 
 async function adminUsers(body) {
-  const { users } = await api('/admin/overview');
+  const [{ users }, who] = await Promise.all([api('/admin/overview'), api('/admin/whoami')]);
   const call = async (path, opts, msg) => {
     try {
       await api(path, opts);
@@ -743,6 +743,7 @@ async function adminUsers(body) {
 
   body.replaceChildren(
     h('p', { class: 'muted small' }, 'Gäste registrieren sich selbst über die Startseite. Danach gibst du sie hier frei. Ablehnen = Löschen.'),
+    h('p', { class: 'muted small' }, `Deine IP laut Server: ${who.ip} (TRUST_PROXY=${who.trustProxy}, X-Forwarded-For: ${who.forwardedFor || '–'})`),
     h('div', { class: 'scroll' }, h('table', {},
       h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Rolle'), h('th', {}))),
       h('tbody', {}, rows))));

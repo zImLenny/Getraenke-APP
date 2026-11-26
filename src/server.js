@@ -9,6 +9,7 @@ createApp({
   secureCookies: process.env.SECURE_COOKIES === 'true',
   adminUsername: process.env.ADMIN_USERNAME,
   adminPassword: process.env.ADMIN_PASSWORD,
+  trustProxy: process.env.TRUST_PROXY,
 }).then((app) => {
   app.listen(port, () => console.log(`Getränke-App läuft auf http://localhost:${port}`));
 });

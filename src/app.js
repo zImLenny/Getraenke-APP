@@ -108,6 +108,8 @@ async function createApp(config = {}) {
     secureCookies: !!config.secureCookies,
     adminUsername: config.adminUsername || '',
     adminPassword: config.adminPassword || '',
+    // Anzahl Proxys vor der App. Nur Zahlen: "true" würde gefälschte X-Forwarded-For-Header glauben.
+    trustProxy: Number(config.trustProxy) || 1,
   };
 
   const db = await openDatabase(cfg.dbUrl, cfg.dbAuthToken);
@@ -126,7 +128,7 @@ async function createApp(config = {}) {
 
   const app = express();
   app.disable('x-powered-by');
-  app.set('trust proxy', 1);
+  app.set('trust proxy', cfg.trustProxy);
   app.use(express.json({ limit: '20kb' }));
   app.use((req, _res, next) => { req.body ??= {}; next(); }); // Express 5 lässt body sonst leer
   app.use((_req, res, next) => {
@@ -379,6 +381,11 @@ async function createApp(config = {}) {
       if (String(e.message).includes('UNIQUE')) throw new HttpError(409, 'Es läuft schon ein Event.');
       throw e;
     }
+  });
+
+  // Zum Prüfen von TRUST_PROXY: Zeigt die IP, die Login-Sperre und Registrier-Bremse sehen.
+  admin.get('/whoami', (req, res) => {
+    res.json({ ip: req.ip, forwardedFor: req.headers['x-forwarded-for'] || '', trustProxy: cfg.trustProxy });
   });
 
   admin.get('/settings', async (_req, res) => {
