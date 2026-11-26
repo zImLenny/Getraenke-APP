@@ -416,8 +416,67 @@ function reminderText(event, pay, p, openCents) {
   return lines.join('\n');
 }
 
+// Inventur: gebucht vs. tatsächlich weg. Die Differenz ist nicht abgerechnet.
+function inventorySection(event, inventory) {
+  const summary = h('p', { class: 'inv-summary' });
+  const foot = h('tr');
+  const signed = (n) => (n > 0 ? `+${n}` : String(n));
+  const rows = inventory.map((r) => {
+    const input = h('input', { type: 'number', min: 0, step: 1, inputmode: 'numeric', class: 'inline-input inv',
+      value: r.actual ?? '', placeholder: '–', 'aria-label': `${r.name}: tatsächlich weg`, oninput: draw });
+    const diff = h('td', { class: 'right num' });
+    return { r, input, diff, tr: h('tr', {}, h('td', {}, r.name), h('td', { class: 'right num' }, r.booked), h('td', {}, input), diff) };
+  });
+
+  function draw() {
+    let booked = 0;
+    let actual = 0;
+    let missing = 0;
+    let counted = 0;
+    for (const x of rows) {
+      booked += x.r.booked;
+      if (x.input.value === '') {
+        x.diff.textContent = '–';
+        x.diff.className = 'right num muted';
+        continue;
+      }
+      const d = Number(x.input.value) - x.r.booked;
+      actual += Number(x.input.value);
+      missing += d;
+      counted++;
+      x.diff.textContent = signed(d);
+      x.diff.className = 'right num' + (d > 0 ? ' error' : '');
+    }
+    foot.replaceChildren(h('td', {}, 'Gesamt'), h('td', { class: 'right num' }, booked),
+      h('td', { class: 'num' }, counted ? actual : '–'), h('td', { class: 'right num' }, counted ? signed(missing) : '–'));
+    summary.textContent = !counted ? 'Trage ein, wie viele Getränke tatsächlich weg sind.'
+      : missing > 0 ? `${missing} ${missing === 1 ? 'Getränk fehlt' : 'Getränke fehlen'} ohne Abrechnung.`
+        : missing < 0 ? `${-missing} mehr gebucht als tatsächlich weg.` : 'Alles stimmt. Nichts fehlt.';
+    summary.className = 'inv-summary' + (missing > 0 ? ' error' : '');
+  }
+  draw();
+
+  const save = h('button', { class: 'btn primary', onclick: async () => {
+    try {
+      const counts = Object.fromEntries(rows.map((x) => [x.r.drinkId, x.input.value]));
+      await api(`/admin/events/${event.id}/inventory`, { method: 'PUT', body: { counts } });
+      toast('Inventur gespeichert');
+    } catch (ex) { toast(ex.message, true); }
+  } }, 'Inventur speichern');
+
+  return h('div', { class: 'card stack', style: 'margin-top:20px' },
+    h('h2', {}, 'Inventur'),
+    h('p', { class: 'muted small' }, 'Zähle am Ende, wie viele Getränke tatsächlich weg sind, z. B. leere Flaschen, und trage sie bei „Weg“ ein. „Fehlt“ = weg, aber nicht gebucht.'),
+    h('div', { class: 'scroll' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Getränk'), h('th', { class: 'right' }, 'Gebucht'), h('th', {}, 'Weg'), h('th', { class: 'right' }, 'Fehlt'))),
+      h('tbody', {}, rows.map((x) => x.tr)),
+      h('tfoot', {}, foot))),
+    summary,
+    save);
+}
+
 async function adminEventDetail(body, id) {
-  const { event, people, payment } = await api(`/admin/events/${id}`);
+  const { event, people, payment, inventory } = await api(`/admin/events/${id}`);
   const stats = h('div', { class: 'stats' });
   const paidOf = (p) => Math.min(p.paidCents || 0, p.totalCents);
   const drawStats = () => {
@@ -475,7 +534,8 @@ async function adminEventDetail(body, id) {
     stats,
     people.length
       ? h('div', { class: 'stack' }, cards)
-      : h('div', { class: 'card muted center' }, 'In diesem Event gibt es keine Buchungen.'));
+      : h('div', { class: 'card muted center' }, 'In diesem Event gibt es keine Buchungen.'),
+    inventorySection(event, inventory));
 }
 
 async function adminEvent(body, id) {
