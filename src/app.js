@@ -20,10 +20,10 @@ function str(value, field, { min = 1, max = 100 } = {}) {
   return s;
 }
 
-function priceToCents(value) {
-  if (String(value).trim() === '') throw new HttpError(400, 'Preis fehlt.');
+function priceToCents(value, label = 'Preis') {
+  if (String(value).trim() === '') throw new HttpError(400, `${label} fehlt.`);
   const n = typeof value === 'string' ? Number(value.replace(',', '.')) : Number(value);
-  if (!Number.isFinite(n) || n < 0 || n > 10000) throw new HttpError(400, 'Preis ungültig.');
+  if (!Number.isFinite(n) || n < 0 || n > 10000) throw new HttpError(400, `${label} ungültig.`);
   return Math.round(n * 100);
 }
 
@@ -491,11 +491,14 @@ async function createApp(config = {}) {
       await db.run('DELETE FROM payments WHERE event_id = ? AND user_id = ?', eventId, userId);
       return res.json({ paidCents: null });
     }
-    // Speichert die aktuelle Summe. Kommen später Getränke dazu, ist der Rest wieder offen.
+    // amount = tatsächlich überwiesen (mehr = Spende, weniger = Rest offen). Ohne amount: aktuelle Summe.
+    // Kommen später Getränke dazu, ist der Rest wieder offen.
+    const cents = req.body.amount === undefined ? null : priceToCents(req.body.amount, 'Betrag');
+    if (cents === 0) throw new HttpError(400, 'Betrag muss größer als 0 sein. Sonst Haken weglassen.');
     const info = await db.run(`INSERT OR REPLACE INTO payments (event_id, user_id, paid_cents)
-      SELECT ?, ?, SUM(price_cents) FROM consumptions
+      SELECT ?, ?, COALESCE(?, SUM(price_cents)) FROM consumptions
       WHERE event_id = ? AND user_id = ? AND deleted_at IS NULL HAVING COUNT(*) > 0`,
-      eventId, userId, eventId, userId);
+      eventId, userId, cents, eventId, userId);
     if (!info.changes) throw new HttpError(404, 'Keine Buchungen dieser Person in diesem Event.');
     res.json(await db.get('SELECT paid_cents AS paidCents FROM payments WHERE event_id = ? AND user_id = ?', eventId, userId));
   });

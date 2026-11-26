@@ -243,6 +243,16 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   assert.equal((await pay(true)).data.paidCents, 750);
   assert.equal((await admin('/admin/events')).data.events[0].paid, 1);
 
+  // Anderer Betrag: mehr = Spende (gilt als bezahlt), weniger = Rest offen
+  const payAmount = (amount) => admin(`/admin/events/${ev.id}/payments/${paula.userId}`, { method: 'PUT', body: { paid: true, amount } });
+  assert.equal((await payAmount('9,00')).data.paidCents, 900);
+  assert.equal((await admin('/admin/events')).data.events[0].paid, 1);
+  assert.equal((await payAmount('5')).data.paidCents, 500);
+  assert.equal((await admin('/admin/events')).data.events[0].paid, 0);
+  assert.equal((await payAmount('0')).status, 400);
+  assert.equal((await payAmount('abc')).data.error, 'Betrag ungültig.');
+  assert.equal((await pay(true)).data.paidCents, 750); // ohne Betrag: aktuelle Summe
+
   // Inventur: gebucht vs. tatsächlich weg
   let inv = (await admin(`/admin/events/${ev.id}`)).data.inventory;
   const cola = inv.find((r) => r.drinkId === drinkId);
