@@ -18,7 +18,9 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 - Zum Beenden trägt der Admin Kontoinhaber, IBAN und optional einen PayPal.me-Link ein und tippt auf „Fertig“.
 - Danach ist die Liste fest. Niemand kann mehr buchen oder korrigieren.
 - Aus Versehen beendet? Mit **„Event wieder öffnen“** geht es weiter, solange kein neues Event läuft.
-- Ein neues Event versteckt die Abrechnung des alten. Exportiere vorher die CSV. Die App warnt dich vor dem Start.
+- Ein neues Event versteckt die Abrechnung des alten für die Gäste. Die App warnt dich vor dem Start.
+- Tab **Event** → **Alle Events**: Jedes Event, auch alte, mit Summe und Anzahl „bezahlt“.
+- Ein Event öffnen: Jede Person mit Endsumme und aufklappbarer Getränkeliste. Mit einem Haken markierst du „bezahlt“.
 - Innerhalb von 10 Sekunden sehen alle Gäste ihre Abrechnung:
   - Was sie getrunken haben und was es kostet.
   - Einen QR-Code für die Überweisung („GiroCode“). Die Banking-App füllt damit Empfänger, IBAN, Betrag und Verwendungszweck aus.
@@ -190,7 +192,6 @@ Gäste scannen ihn und registrieren sich in 30 Sekunden.
 
 ## Ideen für später
 
-- „Bezahlt“ markieren, Guthaben aufladen
-- Alte Events ansehen (aktuell zeigt die App nur das neueste Event)
+- Guthaben aufladen
 - QR-Code direkt in der App erzeugen
 - Statistik nach Uhrzeit
