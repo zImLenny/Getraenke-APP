@@ -61,6 +61,14 @@ async function openDatabase(url, authToken) {
       deleted_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
       event_id    INTEGER REFERENCES events(id)
     );
+
+    -- Admin hakt ab: Person hat für dieses Event bezahlt.
+    CREATE TABLE IF NOT EXISTS payments (
+      event_id INTEGER NOT NULL REFERENCES events(id),
+      user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      paid_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (event_id, user_id)
+    );
   `);
 
   // Alte Datenbanken ohne Events: Spalte nachrüsten, alte Buchungen in ein beendetes Event legen.

@@ -157,10 +157,23 @@ tfoot td { font-weight: 700; background: var(--surface-2); }
 .stat .l { color: var(--muted); font-size: .85rem; }
 
 /* Event und Abrechnung */
-.eventbar {
-  text-align: center; font-weight: 700; padding: 8px 16px;
-  background: var(--accent-soft); border-bottom: 1px solid var(--border);
-}
+.eventbar { max-width: 960px; margin: 0 auto; padding: 12px 16px 0; font-size: .9rem; color: var(--muted); }
+.eventbar b { color: var(--text); }
+.eventbar .live { color: var(--ok); font-weight: 600; }
+.link-row { cursor: pointer; }
+.link-row a { color: var(--text); font-weight: 600; text-decoration: none; }
+.link-row:hover { background: var(--surface-2); }
+.person-head { display: flex; align-items: center; gap: 12px; }
+.person-head .who { flex: 1; min-width: 0; }
+.person-head .name { font-weight: 600; overflow-wrap: anywhere; }
+.person-head .total { font-weight: 700; font-size: 1.1rem; }
+.person.paid { border-color: var(--ok); }
+.person.paid .total { color: var(--ok); }
+.paidbox { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--text); cursor: pointer; }
+.paidbox input { width: 22px; height: 22px; accent-color: var(--ok); }
+.person details { margin-top: 8px; }
+.person summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+.person details table { margin-top: 6px; }
 .qr { display: block; margin: 0 auto; max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
 .copyrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .copyrow .num { overflow-wrap: anywhere; }

@@ -351,6 +351,59 @@ async function createApp(config = {}) {
     res.json({ ok: true });
   });
 
+  // Alle Events, neueste zuerst, mit Summe und Anzahl „bezahlt“.
+  admin.get('/events', async (_req, res) => {
+    const events = await db.all(`
+      SELECT e.id, e.name, e.started_at AS startedAt, e.ended_at AS endedAt,
+             COALESCE(SUM(c.price_cents), 0) AS totalCents,
+             COUNT(DISTINCT c.user_id) AS people,
+             (SELECT COUNT(*) FROM payments p WHERE p.event_id = e.id) AS paid
+      FROM events e LEFT JOIN consumptions c ON c.event_id = e.id AND c.deleted_at IS NULL
+      GROUP BY e.id ORDER BY e.id DESC`);
+    res.json({ events });
+  });
+
+  // Ein Event: jede Person mit Endsumme, Getränkeliste und Bezahlt-Status.
+  admin.get('/events/:id', async (req, res) => {
+    const id = intId(req.params.id);
+    const event = await db.get(`SELECT id, name, started_at AS startedAt, ended_at AS endedAt FROM events WHERE id = ?`, id);
+    if (!event) throw new HttpError(404, 'Event nicht gefunden.');
+    const rows = await db.all(`
+      SELECT u.id AS userId, u.display_name AS displayName, u.username, p.paid_at AS paidAt,
+             d.name AS drink, COUNT(*) AS count, SUM(c.price_cents) AS totalCents
+      FROM consumptions c
+      JOIN users u ON u.id = c.user_id
+      JOIN drinks d ON d.id = c.drink_id
+      LEFT JOIN payments p ON p.event_id = c.event_id AND p.user_id = c.user_id
+      WHERE c.event_id = ? AND c.deleted_at IS NULL
+      GROUP BY c.user_id, c.drink_id
+      ORDER BY u.display_name COLLATE NOCASE, d.sort_order, d.name`, id);
+    const people = new Map();
+    for (const r of rows) {
+      const p = people.get(r.userId) || { userId: r.userId, displayName: r.displayName, username: r.username,
+        paidAt: r.paidAt, totalCents: 0, totalCount: 0, drinks: [] };
+      p.totalCents += r.totalCents;
+      p.totalCount += r.count;
+      p.drinks.push({ name: r.drink, count: r.count, totalCents: r.totalCents });
+      people.set(r.userId, p);
+    }
+    res.json({ event, people: [...people.values()] });
+  });
+
+  admin.put('/events/:id/payments/:userId', async (req, res) => {
+    const eventId = intId(req.params.id);
+    const userId = intId(req.params.userId);
+    if (!req.body.paid) {
+      await db.run('DELETE FROM payments WHERE event_id = ? AND user_id = ?', eventId, userId);
+      return res.json({ ok: true });
+    }
+    const info = await db.run(`INSERT OR REPLACE INTO payments (event_id, user_id) SELECT ?, ?
+      WHERE EXISTS (SELECT 1 FROM events WHERE id = ?) AND EXISTS (SELECT 1 FROM users WHERE id = ?)`,
+      eventId, userId, eventId, userId);
+    if (!info.changes) throw new HttpError(404, 'Event oder Person nicht gefunden.');
+    res.json({ ok: true });
+  });
+
   // Öffnet das neueste Event wieder, falls es aus Versehen beendet wurde.
   admin.post('/events/reopen', async (_req, res) => {
     const info = await db.run(`UPDATE events SET ended_at = NULL
@@ -413,6 +466,7 @@ async function createApp(config = {}) {
     // Explizit löschen: Fremdschlüssel-Regeln sind bei Turso nicht garantiert aktiv.
     await db.batch([
       ['DELETE FROM sessions WHERE user_id = ?', id],
+      ['DELETE FROM payments WHERE user_id = ?', id],
       ['DELETE FROM consumptions WHERE user_id = ?', id],
       ['UPDATE consumptions SET created_by = NULL WHERE created_by = ?', id],
       ['UPDATE consumptions SET deleted_by = NULL WHERE deleted_by = ?', id],

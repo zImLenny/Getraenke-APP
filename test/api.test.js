@@ -194,6 +194,27 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   assert.equal((await g('/me/summary')).data.totalCents, 500);
   assert.equal((await end({ paypal: 'lenny' })).status, 200);
 
+  // Alle Events, Details und „bezahlt“
+  const list = (await admin('/admin/events')).data.events;
+  const ev = list[0];
+  assert.equal(ev.name, 'Testabend');
+  assert.ok(ev.people >= 1);
+  const detail = (await admin(`/admin/events/${ev.id}`)).data;
+  const paula = detail.people.find((p) => p.username === 'paula');
+  assert.equal(paula.totalCents, 500);
+  assert.deepEqual(paula.drinks, [{ name: 'Cola', count: 2, totalCents: 500 }]);
+  assert.equal(paula.paidAt, null);
+  const pay = (paid) => admin(`/admin/events/${ev.id}/payments/${paula.userId}`, { method: 'PUT', body: { paid } });
+  assert.equal((await pay(true)).status, 200);
+  assert.equal((await pay(true)).status, 200); // doppelt abhaken schadet nicht
+  assert.ok((await admin(`/admin/events/${ev.id}`)).data.people.find((p) => p.username === 'paula').paidAt);
+  assert.equal((await admin('/admin/events')).data.events[0].paid, 1);
+  assert.equal((await pay(false)).status, 200);
+  assert.equal((await admin('/admin/events')).data.events[0].paid, 0);
+  assert.equal((await admin('/admin/events/9999')).status, 404);
+  assert.equal((await admin(`/admin/events/9999/payments/${paula.userId}`, { method: 'PUT', body: { paid: true } })).status, 404);
+  assert.equal((await g('/admin/events')).status, 403);
+
   // Neues Event startet bei null
   assert.equal((await admin('/admin/events', { method: 'POST', body: { name: 'Abend 2' } })).status, 201);
   const s2 = (await g('/me/summary')).data;
