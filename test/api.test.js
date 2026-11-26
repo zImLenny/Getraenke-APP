@@ -149,6 +149,10 @@ test('Admin löscht Person samt Buchungen', async () => {
   await g('/register', { method: 'POST', body: { username: 'tom', password: 'abcdef', code: 'party' } });
   const id = (await g('/me')).data.user.id;
   await g('/consumptions', { method: 'POST', body: { drinkId } });
+  // Offener Betrag: Löschen verweigert, erst nach „bezahlt“ erlaubt
+  assert.equal((await admin(`/admin/users/${id}`, { method: 'DELETE' })).status, 409);
+  const evId = (await admin('/admin/events')).data.events[0].id;
+  assert.equal((await admin(`/admin/events/${evId}/payments/${id}`, { method: 'PUT', body: { paid: true } })).status, 200);
   assert.equal((await admin(`/admin/users/${id}`, { method: 'DELETE' })).status, 200);
   assert.equal((await g('/me')).data.user, null);
   assert.ok(!(await admin('/admin/overview')).data.cells.some((c) => c.userId === id));
@@ -203,12 +207,24 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   const paula = detail.people.find((p) => p.username === 'paula');
   assert.equal(paula.totalCents, 500);
   assert.deepEqual(paula.drinks, [{ name: 'Cola', count: 2, totalCents: 500 }]);
-  assert.equal(paula.paidAt, null);
+  assert.equal(paula.paidCents, null);
   const pay = (paid) => admin(`/admin/events/${ev.id}/payments/${paula.userId}`, { method: 'PUT', body: { paid } });
-  assert.equal((await pay(true)).status, 200);
+  const paulaNow = async () => (await admin(`/admin/events/${ev.id}`)).data.people.find((p) => p.username === 'paula');
+  assert.equal((await pay(true)).data.paidCents, 500);
   assert.equal((await pay(true)).status, 200); // doppelt abhaken schadet nicht
-  assert.ok((await admin(`/admin/events/${ev.id}`)).data.people.find((p) => p.username === 'paula').paidAt);
   assert.equal((await admin('/admin/events')).data.events[0].paid, 1);
+
+  // Nach dem Bezahlen kommt ein Getränk dazu: Rest ist wieder offen
+  await admin('/admin/events/reopen', { method: 'POST' });
+  await admin('/admin/consumptions', { method: 'POST', body: { userId: paula.userId, drinkId } });
+  await end({ paypal: 'lenny' });
+  assert.deepEqual([(await paulaNow()).paidCents, (await paulaNow()).totalCents], [500, 750]);
+  assert.equal((await admin('/admin/events')).data.events[0].paid, 0);
+  assert.equal((await pay(true)).data.paidCents, 750);
+  assert.equal((await admin('/admin/events')).data.events[0].paid, 1);
+
+  // Nur Personen mit Buchungen in diesem Event lassen sich abhaken
+  assert.equal((await admin(`/admin/events/${ev.id}/payments/1`, { method: 'PUT', body: { paid: true } })).status, 404);
   assert.equal((await pay(false)).status, 200);
   assert.equal((await admin('/admin/events')).data.events[0].paid, 0);
   assert.equal((await admin('/admin/events/9999')).status, 404);

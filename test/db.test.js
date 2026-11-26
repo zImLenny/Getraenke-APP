@@ -21,6 +21,10 @@ test('alte Datenbank ohne Events: Buchungen landen in „Frühere Buchungen“',
     INSERT INTO users (username, display_name, password_hash) VALUES ('max', 'Max', 'x');
     INSERT INTO drinks (name, price_cents) VALUES ('Bier', 350);
     INSERT INTO consumptions (user_id, drink_id, price_cents) VALUES (1, 1, 350);
+    -- payments ohne paid_cents (Version vom 26.11.2026)
+    CREATE TABLE payments (event_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+      paid_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (event_id, user_id));
+    INSERT INTO payments (event_id, user_id) VALUES (1, 1);
   `);
   old.close();
 
@@ -31,4 +35,6 @@ test('alte Datenbank ohne Events: Buchungen landen in „Frühere Buchungen“',
   assert.equal(events[0].name, 'Frühere Buchungen');
   assert.ok(events[0].endedAt);
   assert.equal((await db.get('SELECT event_id AS e FROM consumptions')).e, 1);
+  // alter Haken gilt für die damalige Summe
+  assert.equal((await db.get('SELECT paid_cents AS c FROM payments')).c, 350);
 });

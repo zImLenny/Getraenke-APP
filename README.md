@@ -20,7 +20,7 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 - Aus Versehen beendet? Mit **„Event wieder öffnen“** geht es weiter, solange kein neues Event läuft.
 - Ein neues Event versteckt die Abrechnung des alten für die Gäste. Die App warnt dich vor dem Start.
 - Tab **Event** → **Alle Events**: Jedes Event, auch alte, mit Summe und Anzahl „bezahlt“.
-- Ein Event öffnen: Jede Person mit Endsumme und aufklappbarer Getränkeliste. Mit einem Haken markierst du „bezahlt“.
+- Ein Event öffnen: Jede Person mit Endsumme und aufklappbarer Getränkeliste. Mit einem Haken markierst du „bezahlt“. Die App merkt sich den Betrag. Kommen danach Getränke dazu, zeigt sie den Rest als offen.
 - Innerhalb von 10 Sekunden sehen alle Gäste ihre Abrechnung:
   - Was sie getrunken haben und was es kostet.
   - Einen QR-Code für die Überweisung („GiroCode“). Die Banking-App füllt damit Empfänger, IBAN, Betrag und Verwendungszweck aus.
@@ -32,7 +32,7 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 - Summen pro Person, pro Getränk und gesamt.
 - Getränke anlegen, umbenennen, Preis ändern, deaktivieren, löschen. Gäste sehen nur aktive Getränke.
 - Preisänderungen gelten nur für neue Buchungen.
-- Personen verwalten: Admin-Rechte geben, Passwort neu setzen, löschen. Beim Löschen entfernt die App auch alle Buchungen dieser Person.
+- Personen verwalten: Admin-Rechte geben, Passwort neu setzen, löschen. Beim Löschen entfernt die App auch alle Buchungen dieser Person. Das geht nur, wenn die Person keine offenen Beträge hat.
 - Protokoll: jede Buchung des aktuellen Events mit Uhrzeit. Ein Minus löscht nichts, es markiert die Buchung.
 - CSV-Export des aktuellen Events für Excel (Trennzeichen `;`, Beträge mit Komma).
 
