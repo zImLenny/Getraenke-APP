@@ -49,10 +49,11 @@ function normalizePaypal(value) {
 }
 
 const NO_EVENT = 'Gerade läuft kein Event.';
-const CATEGORIES = ['bier', 'misch', 'alkoholfrei', 'sonstiges']; // Bestenliste zählt nur bier und misch
+// Einzige Liste der Kategorien. Die Oberfläche lädt sie über /api/config. Bestenliste zählt nur bier und misch.
+const CATEGORIES = { bier: 'Bier', misch: 'Mischgetränk', alkoholfrei: 'Alkoholfrei', sonstiges: 'Sonstiges' };
 
 function category(value) {
-  if (!CATEGORIES.includes(value)) throw new HttpError(400, 'Kategorie ungültig.');
+  if (!Object.hasOwn(CATEGORIES, value)) throw new HttpError(400, 'Kategorie ungültig.');
   return value;
 }
 
@@ -62,16 +63,15 @@ function intId(value) {
   return n;
 }
 
-// Einfache Bremse gegen Passwort-Raten: max. 10 Fehlversuche pro 15 Minuten.
-function createLoginLimiter() {
+// Einfache Bremse: max. `max` Versuche pro Schlüssel in 15 Minuten.
+function createLimiter(max) {
   const fails = new Map();
   const WINDOW = 15 * 60 * 1000;
-  const MAX = 10;
   return {
     blocked(key) {
       const e = fails.get(key);
       if (!e || Date.now() - e.first > WINDOW) return false;
-      return e.count >= MAX;
+      return e.count >= max;
     },
     fail(key) {
       const e = fails.get(key);
@@ -98,7 +98,9 @@ async function createApp(config = {}) {
 
   const db = await openDatabase(cfg.dbUrl, cfg.dbAuthToken);
   const auth = createAuth(db, cfg);
-  const limiter = createLoginLimiter();
+  const limiter = createLimiter(10); // Login: Fehlversuche pro IP + Benutzername
+  // Registrieren: pro IP. Großzügig, weil Gäste im selben WLAN eine IP teilen.
+  const regLimiter = createLimiter(30);
   const lastTap = new Map();
 
   // Start-Admin aus Umgebungsvariablen anlegen, falls noch kein Admin existiert.
@@ -125,10 +127,11 @@ async function createApp(config = {}) {
   // ---------- Konto ----------
 
   api.get('/config', async (_req, res) => {
-    res.json({ registrationCodeRequired: !!cfg.registrationCode });
+    res.json({ registrationCodeRequired: !!cfg.registrationCode, categories: CATEGORIES });
   });
 
   api.post('/register', async (req, res) => {
+    if (regLimiter.blocked(req.ip)) throw new HttpError(429, 'Zu viele neue Konten aus diesem Netz. Bitte 15 Minuten warten.');
     const username = str(req.body.username, 'Benutzername', { min: 3, max: 32 });
     if (!USERNAME_RE.test(username)) throw new HttpError(400, 'Benutzername: nur Buchstaben, Zahlen, . _ -');
     const displayName = str(req.body.displayName || username, 'Anzeigename', { max: 40 });
@@ -136,6 +139,7 @@ async function createApp(config = {}) {
     if (cfg.registrationCode && req.body.code !== cfg.registrationCode) {
       throw new HttpError(403, 'Einladungscode falsch.');
     }
+    regLimiter.fail(req.ip); // zählt jeden Versuch, der einen Passwort-Hash kostet
     // Ohne Start-Admin wird die erste registrierte Person Admin.
     const noAdmin = (await db.get('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1')).n === 0;
     let info;

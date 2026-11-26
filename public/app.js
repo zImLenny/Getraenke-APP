@@ -151,7 +151,6 @@ function field(labelText, name, type, autocomplete) {
 
 const eventKey = (ev) => (ev ? `${ev.id}:${ev.endedAt || ''}` : '');
 
-const CATEGORY_LABEL = { bier: 'Bier', misch: 'Mischgetränk', alkoholfrei: 'Alkoholfrei', sonstiges: 'Sonstiges' };
 
 // Bestenliste unter den Plus-Knöpfen. Admins sehen sie immer, Gäste nur wenn eingeschaltet.
 function drawBoard(el, l) {
@@ -536,7 +535,7 @@ async function adminEvent(body, id) {
 }
 
 function categorySelect(attrs, value) {
-  const sel = h('select', attrs, Object.entries(CATEGORY_LABEL).map(([k, label]) => h('option', { value: k }, label)));
+  const sel = h('select', attrs, Object.entries(state.config.categories || {}).map(([k, label]) => h('option', { value: k }, label)));
   sel.value = value;
   return sel;
 }

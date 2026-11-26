@@ -191,6 +191,7 @@ Gäste scannen ihn und registrieren sich in 30 Sekunden.
 - QR-Code: EPC-Standard (GiroCode), erzeugt mit `qrcode` auf dem Server. Die App prüft die IBAN-Prüfziffer.
 - Passwörter: scrypt-Hash. Sitzungen: zufälliges Token im HttpOnly-Cookie, 30 Tage gültig.
 - Login-Schutz: Nach 10 Fehlversuchen in 15 Minuten sperrt die App den Login für diese IP und diesen Benutzernamen.
+- Registrier-Bremse: Höchstens 30 neue Konten pro IP in 15 Minuten. Gäste im selben WLAN teilen sich eine IP.
 - Ein neues Passwort durch den Admin beendet alle Sitzungen der Person.
 - Der CSV-Export entschärft Namen, die mit `=`, `+`, `-` oder `@` beginnen. Excel führt sie dann nicht als Formel aus.
 - Tests: `npm test` startet die App mit einer Datenbank im Arbeitsspeicher.

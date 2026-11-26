@@ -301,3 +301,22 @@ test('Kategorien und Bestenliste: live, für Gäste ein- und ausschaltbar', asyn
   assert.equal((await b('/live')).data.board.bier.name, 'Anton');
   assert.equal((await client()('/live')).status, 401);
 });
+
+test('Kategorien kommen vom Server', async () => {
+  const { categories } = (await client()('/config')).data;
+  assert.deepEqual(Object.keys(categories), ['bier', 'misch', 'alkoholfrei', 'sonstiges']);
+  assert.equal(categories.misch, 'Mischgetränk');
+});
+
+// Muss der letzte Test sein: danach sperrt die Bremse weitere Registrierungen von 127.0.0.1.
+test('Registrieren hat eine Bremse pro IP', async () => {
+  let blockedAt = 0;
+  for (let i = 1; i <= 40 && !blockedAt; i++) {
+    const r = await client()('/register', { method: 'POST', body: { username: `spam${i}`, password: 'abcdef', code: 'party' } });
+    if (r.status === 429) blockedAt = i;
+    else assert.equal(r.status, 201);
+  }
+  assert.ok(blockedAt > 0, 'keine Sperre nach 40 Registrierungen');
+  // Weitere Versuche bleiben gesperrt.
+  assert.equal((await client()('/register', { method: 'POST', body: { username: 'spamx', password: 'abcdef', code: 'party' } })).status, 429);
+});
