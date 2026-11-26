@@ -24,6 +24,7 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 - Tab **Event** → **Alle Events**: Jedes Event, auch alte, mit Summe und Anzahl „bezahlt“.
 - Ein Event öffnen: Jede Person mit Endsumme und aufklappbarer Getränkeliste. Mit einem Haken markierst du „bezahlt“. Die App merkt sich den Betrag. Kommen danach Getränke dazu, zeigt sie den Rest als offen.
 - **Erinnerung kopieren:** Bei offenem Betrag kopiert der Knopf einen fertigen Text mit Eventname, Datum, Betrag, Bankdaten und PayPal-Link. Den Text schickst du z. B. per WhatsApp.
+- **Inventur:** Unten in jedem Event trägst du pro Getränk ein, wie viele tatsächlich weg sind. Die App zeigt pro Getränk und gesamt, wie viele fehlen, ohne abgerechnet zu sein.
 - Der Verwendungszweck enthält Eventname, Datum und Name, z. B. „Getränke Sommerfest 2026 26.11.2026 Max“.
 - Innerhalb von 10 Sekunden sehen alle Gäste ihre Abrechnung:
   - Was sie getrunken haben und was es kostet.

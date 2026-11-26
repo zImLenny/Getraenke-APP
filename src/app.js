@@ -450,7 +450,38 @@ async function createApp(config = {}) {
     }
     // Zahlungsdaten für den Text „Erinnerung kopieren“.
     const { payeeName, iban, paypal } = await getSettings();
-    res.json({ event: { ...event, date: eventDate(event) }, people: [...people.values()], payment: { payeeName, iban, paypal } });
+    // Inventur: aktive Getränke und alle, die in diesem Event gebucht oder gezählt wurden.
+    const inventory = await db.all(`
+      SELECT * FROM (
+        SELECT d.id AS drinkId, d.name, d.active, d.sort_order,
+               (SELECT COUNT(*) FROM consumptions c WHERE c.event_id = ? AND c.drink_id = d.id AND c.deleted_at IS NULL) AS booked,
+               i.actual
+        FROM drinks d LEFT JOIN inventory i ON i.event_id = ? AND i.drink_id = d.id)
+      WHERE active = 1 OR booked > 0 OR actual IS NOT NULL
+      ORDER BY sort_order, name`, id, id);
+    res.json({
+      event: { ...event, date: eventDate(event) },
+      people: [...people.values()],
+      payment: { payeeName, iban, paypal },
+      inventory: inventory.map(({ drinkId, name, booked, actual }) => ({ drinkId, name, booked, actual })),
+    });
+  });
+
+  // Inventur speichern: { counts: { <drinkId>: Anzahl } }. Leer = nicht gezählt.
+  admin.put('/events/:id/inventory', async (req, res) => {
+    const id = intId(req.params.id);
+    if (!await db.get('SELECT 1 FROM events WHERE id = ?', id)) throw new HttpError(404, 'Event nicht gefunden.');
+    const counts = req.body.counts && typeof req.body.counts === 'object' ? req.body.counts : {};
+    const stmts = Object.entries(counts).map(([drinkId, value]) => {
+      const did = intId(drinkId);
+      if (value === '' || value === null) return ['DELETE FROM inventory WHERE event_id = ? AND drink_id = ?', id, did];
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 0 || n > 100000) throw new HttpError(400, 'Anzahl ungültig: nur ganze Zahlen ab 0.');
+      // Unbekannte Getränke ignorieren statt Fehler.
+      return ['INSERT OR REPLACE INTO inventory (event_id, drink_id, actual) SELECT ?, id, ? FROM drinks WHERE id = ?', id, n, did];
+    });
+    if (stmts.length) await db.batch(stmts);
+    res.json({ ok: true });
   });
 
   admin.put('/events/:id/payments/:userId', async (req, res) => {
@@ -504,7 +535,7 @@ async function createApp(config = {}) {
     const id = intId(req.params.id);
     const used = (await db.get('SELECT COUNT(*) AS n FROM consumptions WHERE drink_id = ?', id)).n;
     if (used > 0) throw new HttpError(409, 'Getränk hat Buchungen. Bitte stattdessen deaktivieren.');
-    await db.run('DELETE FROM drinks WHERE id = ?', id);
+    await db.batch([['DELETE FROM inventory WHERE drink_id = ?', id], ['DELETE FROM drinks WHERE id = ?', id]]);
     res.json({ ok: true });
   });
 

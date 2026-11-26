@@ -72,6 +72,14 @@ async function openDatabase(url, authToken) {
       paid_cents INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (event_id, user_id)
     );
+
+    -- Inventur: so viele Stück eines Getränks sind nach dem Event tatsächlich weg.
+    CREATE TABLE IF NOT EXISTS inventory (
+      event_id INTEGER NOT NULL REFERENCES events(id),
+      drink_id INTEGER NOT NULL REFERENCES drinks(id),
+      actual   INTEGER NOT NULL,
+      PRIMARY KEY (event_id, drink_id)
+    );
   `);
 
   // Ältere Datenbanken: fehlende Spalten nachrüsten. true = Spalte war neu.

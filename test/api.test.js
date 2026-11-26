@@ -243,6 +243,25 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   assert.equal((await pay(true)).data.paidCents, 750);
   assert.equal((await admin('/admin/events')).data.events[0].paid, 1);
 
+  // Inventur: gebucht vs. tatsächlich weg
+  let inv = (await admin(`/admin/events/${ev.id}`)).data.inventory;
+  const cola = inv.find((r) => r.drinkId === drinkId);
+  assert.deepEqual([cola.booked, cola.actual], [3, null]);
+  const saveInv = (counts) => admin(`/admin/events/${ev.id}/inventory`, { method: 'PUT', body: { counts } });
+  assert.equal((await saveInv({ [drinkId]: 5, 99999: 4 })).status, 200); // unbekanntes Getränk wird ignoriert
+  inv = (await admin(`/admin/events/${ev.id}`)).data.inventory;
+  assert.equal(inv.find((r) => r.drinkId === drinkId).actual, 5);
+  assert.ok(!inv.some((r) => r.drinkId === 99999));
+  assert.equal((await saveInv({ [drinkId]: -1 })).status, 400);
+  assert.equal((await saveInv({ [drinkId]: 2.5 })).status, 400);
+  assert.equal((await admin('/admin/events/9999/inventory', { method: 'PUT', body: { counts: {} } })).status, 404);
+  // Getränk ohne Buchungen, aber mit Inventur, lässt sich löschen
+  const leer = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Leer', price: '1' } })).data.id;
+  await saveInv({ [leer]: 1 });
+  assert.equal((await admin(`/admin/drinks/${leer}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await saveInv({ [drinkId]: '' })).status, 200); // leer = nicht gezählt
+  assert.equal((await admin(`/admin/events/${ev.id}`)).data.inventory.find((r) => r.drinkId === drinkId).actual, null);
+
   // Nur Personen mit Buchungen in diesem Event lassen sich abhaken
   assert.equal((await admin(`/admin/events/${ev.id}/payments/1`, { method: 'PUT', body: { paid: true } })).status, 404);
   assert.equal((await pay(false)).status, 200);
