@@ -33,7 +33,7 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 - Übersicht: Tabelle Person × Getränk mit **+** und **−**. Aktualisiert sich alle 5 Sekunden.
 - Summen pro Person, pro Getränk und gesamt.
 - Getränke anlegen, umbenennen, Preis ändern, deaktivieren, löschen. Gäste sehen nur aktive Getränke.
-- Jedes Getränk gehört zur Kategorie **Bier** oder **Mischgetränk**. Die Bestenliste zählt nach diesen Kategorien.
+- Jedes Getränk gehört zu einer Kategorie: **Bier**, **Mischgetränk**, **Alkoholfrei** oder **Sonstiges**. Die Bestenliste zählt nur Bier und Mischgetränke.
 - Neue Gäste freigeben (Tab **Personen**). Die Übersicht zeigt einen Hinweis, sobald jemand wartet.
 - Bestenliste für alle Gäste ein- oder ausschalten (Tab **Event**). Admins sehen sie immer.
 - Preisänderungen gelten nur für neue Buchungen.

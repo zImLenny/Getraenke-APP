@@ -49,7 +49,7 @@ function normalizePaypal(value) {
 }
 
 const NO_EVENT = 'Gerade läuft kein Event.';
-const CATEGORIES = ['bier', 'misch'];
+const CATEGORIES = ['bier', 'misch', 'alkoholfrei', 'sonstiges']; // Bestenliste zählt nur bier und misch
 
 function category(value) {
   if (!CATEGORIES.includes(value)) throw new HttpError(400, 'Kategorie ungültig.');

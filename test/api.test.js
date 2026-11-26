@@ -264,6 +264,9 @@ test('Kategorien und Bestenliste: live, für Gäste ein- und ausschaltbar', asyn
   assert.equal((await admin(`/admin/drinks/${aperol}`, { method: 'PUT', body: { category: 'bier' } })).status, 200);
   assert.equal((await admin('/admin/overview')).data.drinks.find((d) => d.id === aperol).category, 'bier');
   await admin(`/admin/drinks/${aperol}`, { method: 'PUT', body: { category: 'misch' } });
+  // Alkoholfrei und Sonstiges zählen nicht in der Bestenliste
+  const wasser = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Wasser', price: '1', category: 'alkoholfrei' } })).data.id;
+  const chips = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Chips', price: '2', category: 'sonstiges' } })).data.id;
 
   const a = client();
   const b = client();
@@ -278,6 +281,11 @@ test('Kategorien und Bestenliste: live, für Gäste ein- und ausschaltbar', asyn
   await a('/consumptions', { method: 'POST', body: { drinkId: pils } });
   await b('/consumptions', { method: 'POST', body: { drinkId: pils } });
   await b('/consumptions', { method: 'POST', body: { drinkId: aperol } });
+  for (let i = 0; i < 3; i++) {
+    await b('/consumptions', { method: 'POST', body: { drinkId: wasser } });
+    await b('/consumptions', { method: 'POST', body: { drinkId: chips } });
+    await sleep(900);
+  }
 
   // Aus: nur der Admin sieht die Bestenliste
   await admin('/admin/scoreboard', { method: 'PUT', body: { visible: false } });
