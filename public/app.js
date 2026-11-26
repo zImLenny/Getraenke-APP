@@ -479,40 +479,73 @@ function inventorySection(event, inventory) {
     save);
 }
 
+// Fragt beim Abhaken, wie viel die Person tatsächlich bezahlt hat. Gibt den Betrag als Text zurück, null = Abbrechen.
+function askPaid(p) {
+  return new Promise((resolve) => {
+    const amount = h('input', { id: 'pay_amount', type: 'text', inputmode: 'decimal', value: (p.totalCents / 100).toFixed(2).replace('.', ',') });
+    const done = (value) => { dlg.close(); dlg.remove(); resolve(value); };
+    const dlg = h('dialog', { class: 'card paydialog' },
+      h('div', { class: 'stack' },
+        h('h2', {}, `Hat ${p.displayName} bezahlt?`),
+        h('p', {}, 'Zu zahlen: ', h('b', {}, fmt(p.totalCents))),
+        h('button', { class: 'btn primary block', onclick: () => done(String(p.totalCents / 100)) }, `Ja, genau ${fmt(p.totalCents)}`),
+        h('form', { class: 'stack', onsubmit: (e) => { e.preventDefault(); done(amount.value); } },
+          h('label', { for: 'pay_amount' }, 'Anderer Betrag insgesamt in € (z. B. mit Spende oder nur ein Teil)'),
+          amount,
+          h('button', { class: 'btn block', type: 'submit' }, 'Diesen Betrag speichern')),
+        h('button', { class: 'btn ghost block', onclick: () => done(null) }, 'Abbrechen')));
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(null); }); // Esc-Taste
+    document.body.append(dlg);
+    dlg.showModal();
+  });
+}
+
 async function adminEventDetail(body, id) {
   const { event, people, payment, inventory } = await api(`/admin/events/${id}`);
   const stats = h('div', { class: 'stats' });
-  const paidOf = (p) => Math.min(p.paidCents || 0, p.totalCents);
+  const openOf = (p) => Math.max(0, p.totalCents - (p.paidCents || 0));
+  const extraOf = (p) => Math.max(0, (p.paidCents || 0) - p.totalCents);
+  const sum = (f) => people.reduce((s, p) => s + f(p), 0);
   const drawStats = () => {
-    const total = people.reduce((s, p) => s + p.totalCents, 0);
-    const paid = people.reduce((s, p) => s + paidOf(p), 0);
-    stats.replaceChildren(stat(fmt(total), 'Summe'), stat(fmt(paid), 'Bezahlt'), stat(fmt(total - paid), 'Offen'));
+    // Bezahlt = tatsächlich eingenommen, inklusive Spenden. Kann darum über der Summe liegen.
+    const extra = sum(extraOf);
+    stats.replaceChildren(
+      stat(fmt(sum((p) => p.totalCents)), 'Summe'),
+      stat(fmt(sum((p) => p.paidCents || 0)), extra ? `Bezahlt, davon ${fmt(extra)} extra` : 'Bezahlt'),
+      stat(fmt(sum(openOf)), 'Offen'));
   };
   drawStats();
 
   const cards = people.map((p) => {
     const full = () => p.paidCents != null && p.paidCents >= p.totalCents;
-    const open = () => p.totalCents - paidOf(p);
+    const open = () => openOf(p);
     const note = h('div', { class: 'small' });
     const copyBtn = h('button', { class: 'btn sm', onclick: () => navigator.clipboard.writeText(reminderText(event, payment, p, open()))
       .then(() => toast(`Erinnerung für ${p.displayName} kopiert`), () => toast('Kopieren geht hier nicht.', true)) }, 'Erinnerung kopieren');
     const drawNote = () => {
       const partial = p.paidCents != null && !full();
-      note.textContent = partial ? `${fmt(p.paidCents)} bezahlt, ${fmt(p.totalCents - p.paidCents)} offen` : '';
-      note.className = 'small' + (partial ? ' error' : '');
+      note.textContent = partial ? `${fmt(p.paidCents)} bezahlt, ${fmt(open())} offen`
+        : extraOf(p) ? `${fmt(p.paidCents)} bezahlt, davon ${fmt(extraOf(p))} extra` : '';
+      note.className = 'small' + (partial ? ' error' : extraOf(p) ? ' ok' : '');
       copyBtn.hidden = full();
       card.classList.toggle('paid', full());
       box.checked = full();
     };
     const box = h('input', { type: 'checkbox', onchange: async () => {
+      let body = { paid: false };
+      if (box.checked) {
+        const amount = await askPaid(p);
+        if (amount === null) return drawNote(); // abgebrochen: alter Zustand
+        body = { paid: true, amount };
+      }
       try {
-        const r = await api(`/admin/events/${event.id}/payments/${p.userId}`, { method: 'PUT', body: { paid: box.checked } });
+        const r = await api(`/admin/events/${event.id}/payments/${p.userId}`, { method: 'PUT', body });
         p.paidCents = r.paidCents;
         drawNote();
         drawStats();
-        toast(`${p.displayName}: ${box.checked ? 'bezahlt' : 'offen'}`);
+        toast(`${p.displayName}: ${p.paidCents == null ? 'offen' : `${fmt(p.paidCents)} bezahlt`}`);
       } catch (ex) {
-        box.checked = !box.checked;
+        drawNote();
         toast(ex.message, true);
       }
     } });
