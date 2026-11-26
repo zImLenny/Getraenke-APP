@@ -431,7 +431,8 @@ function inventorySection(event, inventory) {
   function draw() {
     let booked = 0;
     let actual = 0;
-    let missing = 0;
+    let missing = 0; // nur positive Differenzen: weg, aber nicht gebucht
+    let over = 0; // nur negative Differenzen: gebucht, aber nicht weg. Getrennt, damit sich beides nicht aufhebt.
     let counted = 0;
     for (const x of rows) {
       booked += x.r.booked;
@@ -442,16 +443,19 @@ function inventorySection(event, inventory) {
       }
       const d = Number(x.input.value) - x.r.booked;
       actual += Number(x.input.value);
-      missing += d;
+      if (d > 0) missing += d;
+      else over -= d;
       counted++;
       x.diff.textContent = signed(d);
       x.diff.className = 'right num' + (d > 0 ? ' error' : '');
     }
     foot.replaceChildren(h('td', {}, 'Gesamt'), h('td', { class: 'right num' }, booked),
       h('td', { class: 'num' }, counted ? actual : '–'), h('td', { class: 'right num' }, counted ? signed(missing) : '–'));
+    const parts = [];
+    if (missing) parts.push(`${missing} ${missing === 1 ? 'Getränk fehlt' : 'Getränke fehlen'} ohne Abrechnung.`);
+    if (over) parts.push(`${over} mehr gebucht als tatsächlich weg.`);
     summary.textContent = !counted ? 'Trage ein, wie viele Getränke tatsächlich weg sind.'
-      : missing > 0 ? `${missing} ${missing === 1 ? 'Getränk fehlt' : 'Getränke fehlen'} ohne Abrechnung.`
-        : missing < 0 ? `${-missing} mehr gebucht als tatsächlich weg.` : 'Alles stimmt. Nichts fehlt.';
+      : parts.length ? parts.join(' ') : 'Alles stimmt. Nichts fehlt.';
     summary.className = 'inv-summary' + (missing > 0 ? ' error' : '');
   }
   draw();
