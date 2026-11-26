@@ -1,6 +1,6 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
-const { createApp, eventDate } = require('../src/app');
+const { createApp, eventYear, eventLabel } = require('../src/app');
 
 let server;
 let base;
@@ -199,7 +199,7 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   assert.equal(s.payment.iban, 'DE89370400440532013000');
   assert.equal(s.payment.paypalUrl, 'https://paypal.me/lenny/2.50EUR');
   assert.match(s.payment.qr, /^data:image\/png;base64,/);
-  assert.match(s.payment.reference, /^Getränke Testabend \d{2}\.\d{2}\.\d{4} Pau la$/); // mit Datum, ohne Zeilenumbruch
+  assert.match(s.payment.reference, /^Getränke Testabend \d{4} Pau la$/); // mit Datum, ohne Zeilenumbruch
 
   // Liste ist fest
   await sleep(900); // Doppel-Tipp-Schutz abwarten
@@ -225,7 +225,8 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   assert.equal(paula.totalCents, 500);
   assert.deepEqual(paula.drinks, [{ name: 'Cola', count: 2, totalCents: 500 }]);
   assert.equal(paula.paidCents, null);
-  assert.match(detail.event.date, /^\d{2}\.\d{2}\.\d{4}$/);
+  assert.match(detail.event.year, /^\d{4}$/);
+  assert.equal(detail.event.label, `Testabend ${detail.event.year}`);
   assert.equal(paula.reference, s.payment.reference);
   assert.deepEqual(detail.payment, { payeeName: '', iban: '', paypal: 'lenny' }); // zuletzt nur mit PayPal beendet
   const pay = (paid) => admin(`/admin/events/${ev.id}/payments/${paula.userId}`, { method: 'PUT', body: { paid } });
@@ -334,10 +335,11 @@ test('Kategorien und Bestenliste: live, für Gäste ein- und ausschaltbar', asyn
   assert.equal((await client()('/live')).status, 401);
 });
 
-test('Event-Datum in deutscher Zeit', () => {
-  assert.equal(eventDate({ startedAt: '2026-11-25 23:30:00' }), '26.11.2026'); // 00:30 Uhr in Berlin
-  assert.equal(eventDate({ startedAt: '2026-07-01 21:59:00' }), '01.07.2026'); // Sommerzeit
-  assert.equal(eventDate({ startedAt: '2026-07-01 22:00:00' }), '02.07.2026');
+test('Event-Jahr in deutscher Zeit, Jahr nicht doppelt im Namen', () => {
+  assert.equal(eventYear({ startedAt: '2026-12-31 22:59:00' }), '2026'); // 23:59 Uhr in Berlin
+  assert.equal(eventYear({ startedAt: '2026-12-31 23:30:00' }), '2027'); // 00:30 Uhr in Berlin
+  assert.equal(eventLabel({ name: 'Sommerfest', startedAt: '2026-07-01 18:00:00' }), 'Sommerfest 2026');
+  assert.equal(eventLabel({ name: 'Sommerfest 2026', startedAt: '2026-07-01 18:00:00' }), 'Sommerfest 2026');
 });
 
 test('Kategorien kommen vom Server', async () => {

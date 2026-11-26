@@ -53,13 +53,16 @@ const NO_EVENT = 'Gerade läuft kein Event.';
 // Der QR-Code trennt Felder mit Zeilenumbrüchen. Darum Leerraum in Namen zu einem Leerzeichen machen.
 const oneLine = (t) => t.replace(/\s+/g, ' ');
 
-// Startdatum des Events, z. B. "26.11.2026". Die Datenbank speichert UTC.
+// Jahr des Events, z. B. "2026". Die Datenbank speichert UTC; deutsche Zeit zählt (wichtig an Silvester).
 // shortcut: immer deutsche Zeit; für Events in anderen Zeitzonen eine Einstellung ergänzen.
-const eventDate = (e) => new Date(e.startedAt.replace(' ', 'T') + 'Z')
-  .toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin', day: '2-digit', month: '2-digit', year: 'numeric' });
+const eventYear = (e) => new Date(e.startedAt.replace(' ', 'T') + 'Z')
+  .toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin', year: 'numeric' });
+
+// Eventname mit Jahr, ohne das Jahr doppelt: "Sommerfest" → "Sommerfest 2026", "Sommerfest 2026" bleibt.
+const eventLabel = (e) => (e.name.includes(eventYear(e)) ? e.name : `${e.name} ${eventYear(e)}`);
 
 // Verwendungszweck für Überweisung und Erinnerung. EPC erlaubt höchstens 140 Zeichen.
-const reference = (event, name) => oneLine(`Getränke ${event.name} ${eventDate(event)} ${name}`).slice(0, 140);
+const reference = (event, name) => oneLine(`Getränke ${eventLabel(event)} ${name}`).slice(0, 140);
 // Einzige Liste der Kategorien. Die Oberfläche lädt sie über /api/config. Bestenliste zählt nur bier und misch.
 const CATEGORIES = { bier: 'Bier', misch: 'Mischgetränk', alkoholfrei: 'Alkoholfrei', sonstiges: 'Sonstiges' };
 
@@ -421,7 +424,7 @@ async function createApp(config = {}) {
                  WHERE c2.event_id = e.id AND c2.user_id = p.user_id AND c2.deleted_at IS NULL)) AS paid
       FROM events e LEFT JOIN consumptions c ON c.event_id = e.id AND c.deleted_at IS NULL
       GROUP BY e.id ORDER BY e.id DESC`);
-    res.json({ events });
+    res.json({ events: events.map((e) => ({ ...e, year: eventYear(e) })) });
   });
 
   // Ein Event: jede Person mit Endsumme, Getränkeliste und Bezahlt-Status.
@@ -460,7 +463,7 @@ async function createApp(config = {}) {
       WHERE active = 1 OR booked > 0 OR actual IS NOT NULL
       ORDER BY sort_order, name`, id, id);
     res.json({
-      event: { ...event, date: eventDate(event) },
+      event: { ...event, year: eventYear(event), label: eventLabel(event) },
       people: [...people.values()],
       payment: { payeeName, iban, paypal },
       inventory: inventory.map(({ drinkId, name, booked, actual }) => ({ drinkId, name, booked, actual })),
@@ -606,4 +609,4 @@ async function createApp(config = {}) {
   return app;
 }
 
-module.exports = { createApp, eventDate };
+module.exports = { createApp, eventYear, eventLabel };

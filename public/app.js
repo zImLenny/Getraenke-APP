@@ -393,10 +393,10 @@ function eventList(events) {
   return h('div', {},
     h('h2', { style: 'margin-top:20px' }, 'Alle Events'),
     h('div', { class: 'scroll' }, h('table', {},
-      h('thead', {}, h('tr', {}, h('th', {}, 'Event'), h('th', {}, 'Datum'), h('th', { class: 'right' }, 'Summe'), h('th', { class: 'right' }, 'Bezahlt'))),
+      h('thead', {}, h('tr', {}, h('th', {}, 'Event'), h('th', {}, 'Jahr'), h('th', { class: 'right' }, 'Summe'), h('th', { class: 'right' }, 'Bezahlt'))),
       h('tbody', {}, events.map((e) => h('tr', { class: 'link-row', onclick: () => (location.hash = `#/admin/event/${e.id}`) },
         h('td', {}, h('a', { href: `#/admin/event/${e.id}` }, e.name), e.endedAt ? null : [' ', h('span', { class: 'badge' }, 'läuft')]),
-        h('td', { class: 'small muted' }, time(e.startedAt).split(',')[0]),
+        h('td', { class: 'small muted' }, e.year),
         h('td', { class: 'right num' }, fmt(e.totalCents)),
         h('td', { class: 'right num' }, `${e.paid}/${e.people}`)))))));
 }
@@ -404,15 +404,15 @@ function eventList(events) {
 // Ein Event: jede Person mit Endsumme, aufklappbarer Getränkeliste und Haken „bezahlt“.
 // Text zum Kopieren für Personen, die noch nicht (vollständig) bezahlt haben.
 function reminderText(event, pay, p, openCents) {
-  const lines = [`${event.name} – ${event.date}`, '', `Hi ${p.displayName},`, '',
-    `du hast für „${event.name}“ am ${event.date} bisher ${fmt(openCents)} noch nicht überwiesen. Bitte überweise den Betrag, sobald du kannst.`];
+  const lines = [`Getränke-Abrechnung – ${event.label}`, '', `Hi ${p.displayName},`, '',
+    `vom Event „${event.label}“ sind bei dir noch ${fmt(openCents)} für Getränke offen. Kannst du den Betrag bitte bald überweisen?`];
   if (pay.iban) {
     lines.push('', `Empfänger: ${pay.payeeName}`, `IBAN: ${pay.iban.replace(/(.{4})/g, '$1 ').trim()}`,
       `Betrag: ${fmt(openCents)}`, `Verwendungszweck: ${p.reference}`);
   }
   // Gleiches Link-Format wie paymentInfo in src/app.js.
-  if (pay.paypal) lines.push('', `Oder per PayPal: https://paypal.me/${pay.paypal}/${(openCents / 100).toFixed(2)}EUR`);
-  lines.push('', 'Danke!');
+  if (pay.paypal) lines.push('', `${pay.iban ? 'Alternativ geht es auch' : 'Am einfachsten geht es'} per PayPal: https://paypal.me/${pay.paypal}/${(openCents / 100).toFixed(2)}EUR`);
+  lines.push('', 'Danke dir und viele Grüße!');
   return lines.join('\n');
 }
 
@@ -567,7 +567,7 @@ async function adminEventDetail(body, id) {
   body.replaceChildren(
     h('a', { class: 'btn sm ghost', href: '#/admin/event' }, '← Alle Events'),
     h('h2', { style: 'margin-top:12px' }, event.name),
-    h('p', { class: 'muted small' }, `${time(event.startedAt)} bis ${event.endedAt ? time(event.endedAt) : 'jetzt (läuft noch)'}`),
+    h('p', { class: 'muted small' }, `${event.year} · ${event.endedAt ? 'beendet' : 'läuft noch'}`),
     stats,
     people.length
       ? h('div', { class: 'stack' }, cards)
@@ -608,7 +608,7 @@ async function adminEvent(body, id) {
       h('button', { class: 'btn primary block', type: 'submit' }, 'Event starten'));
     body.replaceChildren(
       event ? h('div', { class: 'card stack' },
-        h('p', {}, `Letztes Event: ${event.name}, beendet am ${time(event.endedAt)}.`),
+        h('p', {}, `Letztes Event: ${event.name} (beendet).`),
         h('button', { class: 'btn', onclick: async () => {
           if (!confirm(`„${event.name}“ wieder öffnen? Die Gäste können dann wieder buchen.`)) return;
           try {
@@ -642,7 +642,6 @@ async function adminEvent(body, id) {
 
   body.replaceChildren(h('div', { class: 'card stack' },
     h('h2', {}, `Läuft: ${event.name}`),
-    h('p', { class: 'muted small' }, `Gestartet am ${time(event.startedAt)}.`),
     h('button', { class: 'btn danger', onclick: (e) => { e.currentTarget.hidden = true; endForm.hidden = false; } }, 'Event beenden'),
     endForm),
     boardCard,
