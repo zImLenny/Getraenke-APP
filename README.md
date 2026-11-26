@@ -23,9 +23,9 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 - Ein neues Event versteckt die Abrechnung des alten für die Gäste. Die App warnt dich vor dem Start.
 - Tab **Event** → **Alle Events**: Jedes Event, auch alte, mit Summe und Anzahl „bezahlt“.
 - Ein Event öffnen: Jede Person mit Endsumme und aufklappbarer Getränkeliste. Mit einem Haken markierst du „bezahlt“. Ein Fenster fragt nach dem Betrag: „Ja, genau“ oder ein anderer Betrag. Mehr gilt als Spende, weniger lässt den Rest offen. „Bezahlt“ oben zeigt das tatsächlich eingenommene Geld inklusive Spenden. Kommen nach dem Haken Getränke dazu, ist der Rest wieder offen.
-- **Erinnerung kopieren:** Bei offenem Betrag kopiert der Knopf einen fertigen Text mit Eventname, Datum, Betrag, Bankdaten und PayPal-Link. Den Text schickst du z. B. per WhatsApp.
+- **Erinnerung kopieren:** Bei offenem Betrag kopiert der Knopf einen fertigen Text mit Eventname, Jahr, Betrag, Bankdaten und PayPal-Link. Den Text schickst du z. B. per WhatsApp.
 - **Inventur:** Unten in jedem Event trägst du pro Getränk ein, wie viele tatsächlich weg sind. Die App zeigt pro Getränk und gesamt, wie viele fehlen, ohne abgerechnet zu sein.
-- Der Verwendungszweck enthält Eventname, Datum und Name, z. B. „Getränke Sommerfest 2026 26.11.2026 Max“.
+- Der Verwendungszweck enthält Eventname, Jahr und Name, z. B. „Getränke Sommerfest 2026 Max“. Steht das Jahr schon im Namen, kommt es nicht doppelt.
 - Innerhalb von 10 Sekunden sehen alle Gäste ihre Abrechnung:
   - Was sie getrunken haben und was es kostet.
   - Einen QR-Code für die Überweisung („GiroCode“). Die Banking-App füllt damit Empfänger, IBAN, Betrag und Verwendungszweck aus.
