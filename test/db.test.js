@@ -37,4 +37,7 @@ test('alte Datenbank ohne Events: Buchungen landen in „Frühere Buchungen“',
   assert.equal((await db.get('SELECT event_id AS e FROM consumptions')).e, 1);
   // alter Haken gilt für die damalige Summe
   assert.equal((await db.get('SELECT paid_cents AS c FROM payments')).c, 350);
+  // bestehende Personen sind freigegeben, bestehende Getränke sind Bier
+  assert.equal((await db.get('SELECT approved AS a FROM users')).a, 1);
+  assert.equal((await db.get('SELECT category AS c FROM drinks')).c, 'bier');
 });

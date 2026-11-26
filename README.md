@@ -7,6 +7,8 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 
 **Gäste**
 - Registrieren und anmelden (Benutzername + Passwort, optional mit Einladungscode).
+- Neue Gäste warten auf Freigabe durch den Admin. Erst danach können sie buchen. Die Seite wechselt nach der Freigabe von selbst.
+- Bestenliste unter den Plus-Knöpfen: Wer im laufenden Event am meisten Bier und am meisten Mischgetränke hatte. Aktualisiert sich alle 10 Sekunden.
 - Für jedes Getränk einen großen **+**-Knopf. Es gibt **kein Minus**.
 - Eigene Anzahl und eigene Summe in Euro sehen.
 - Schutz gegen Doppel-Tipp (0,8 Sekunden).
@@ -31,6 +33,9 @@ Der Admin sieht, wer was getrunken hat, und korrigiert Fehler.
 - Übersicht: Tabelle Person × Getränk mit **+** und **−**. Aktualisiert sich alle 5 Sekunden.
 - Summen pro Person, pro Getränk und gesamt.
 - Getränke anlegen, umbenennen, Preis ändern, deaktivieren, löschen. Gäste sehen nur aktive Getränke.
+- Jedes Getränk gehört zur Kategorie **Bier** oder **Mischgetränk**. Die Bestenliste zählt nach diesen Kategorien.
+- Neue Gäste freigeben (Tab **Personen**). Die Übersicht zeigt einen Hinweis, sobald jemand wartet.
+- Bestenliste für alle Gäste ein- oder ausschalten (Tab **Event**). Admins sehen sie immer.
 - Preisänderungen gelten nur für neue Buchungen.
 - Personen verwalten: Admin-Rechte geben, Passwort neu setzen, löschen. Beim Löschen entfernt die App auch alle Buchungen dieser Person. Das geht nur, wenn die Person keine offenen Beträge hat.
 - Protokoll: jede Buchung des aktuellen Events mit Uhrzeit. Ein Minus löscht nichts, es markiert die Buchung.
@@ -170,7 +175,7 @@ Danach startet die App wie eine normale App, ohne Browser-Leiste.
 
 1. Admin → Tab **Getränke**: Getränke mit Preis anlegen.
 2. Admin → Tab **Event**: Namen eingeben, **Event starten**.
-3. Gäste registrieren sich und tippen bei jedem Getränk auf **+**.
+3. Gäste registrieren sich. Du gibst sie im Tab **Personen** frei. Dann tippen sie bei jedem Getränk auf **+**.
 4. Am Ende: Admin → Tab **Event** → **Event beenden** → Zahlungsdaten eintragen → **Fertig**.
 5. Die Gäste sehen ihre Abrechnung und bezahlen per Überweisung oder PayPal.
 

@@ -49,6 +49,12 @@ function normalizePaypal(value) {
 }
 
 const NO_EVENT = 'Gerade läuft kein Event.';
+const CATEGORIES = ['bier', 'misch'];
+
+function category(value) {
+  if (!CATEGORIES.includes(value)) throw new HttpError(400, 'Kategorie ungültig.');
+  return value;
+}
 
 function intId(value) {
   const n = Number(value);
@@ -134,7 +140,9 @@ async function createApp(config = {}) {
     const noAdmin = (await db.get('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1')).n === 0;
     let info;
     try {
-      info = await db.run('INSERT INTO users (username, display_name, password_hash, is_admin) VALUES (?, ?, ?, ?)', username, displayName, hashPassword(password), noAdmin ? 1 : 0);
+      // Neue Gäste warten auf Freigabe durch den Admin.
+      info = await db.run('INSERT INTO users (username, display_name, password_hash, is_admin, approved) VALUES (?, ?, ?, ?, ?)',
+        username, displayName, hashPassword(password), noAdmin ? 1 : 0, noAdmin ? 1 : 0);
     } catch (e) {
       if (String(e.message).includes('UNIQUE')) throw new HttpError(409, 'Benutzername ist schon vergeben.');
       throw e;
@@ -175,8 +183,36 @@ async function createApp(config = {}) {
 
   async function getSettings() {
     const s = Object.fromEntries((await db.all('SELECT key, value FROM settings')).map((r) => [r.key, r.value]));
-    return { payeeName: s.payeeName || '', iban: s.iban || '', paypal: s.paypal || '' };
+    return { payeeName: s.payeeName || '', iban: s.iban || '', paypal: s.paypal || '', scoreboard: s.scoreboard === '1' };
   }
+
+  // Event-Stand und Bestenliste für die Abfrage alle 10 s von allen Gästen.
+  // shortcut: 5 s Zwischenspeicher im Prozess, damit 200 Gäste nicht 200-mal zählen; bei mehreren Server-Prozessen gemeinsam speichern.
+  let live = { at: 0 };
+  async function liveData() {
+    if (Date.now() - live.at < 5000) return live;
+    const event = (await latestEvent()) || null;
+    const visible = (await db.get(`SELECT value FROM settings WHERE key = 'scoreboard'`))?.value === '1';
+    let board = null;
+    if (event && !event.endedAt) {
+      // Bei Gleichstand gewinnt, wer die Anzahl zuerst erreicht hat (kleinste letzte Buchungs-ID).
+      const rows = await db.all(`
+        SELECT d.category, u.display_name AS name, COUNT(*) AS count
+        FROM consumptions c JOIN drinks d ON d.id = c.drink_id JOIN users u ON u.id = c.user_id
+        WHERE c.event_id = ? AND c.deleted_at IS NULL
+        GROUP BY d.category, c.user_id ORDER BY count DESC, MAX(c.id)`, event.id);
+      const top = (cat) => rows.find((r) => r.category === cat) || null;
+      board = { bier: top('bier'), misch: top('misch') };
+    }
+    live = { at: Date.now(), event, visible, board };
+    return live;
+  }
+
+  api.get('/live', requireUser, async (req, res) => {
+    const l = await liveData();
+    const show = l.board && req.user.approved && (l.visible || req.user.isAdmin);
+    res.json({ event: l.event, approved: req.user.approved, boardVisible: l.visible, board: show ? l.board : null });
+  });
 
   async function paymentInfo(user, event, cents) {
     const s = await getSettings();
@@ -230,6 +266,7 @@ async function createApp(config = {}) {
 
   // Nur Plus. Minus darf nur der Admin.
   api.post('/consumptions', requireUser, async (req, res) => {
+    if (!req.user.approved) throw new HttpError(403, 'Dein Konto wartet noch auf Freigabe durch den Admin.');
     const drinkId = intId(req.body.drinkId);
     const drink = await db.get('SELECT id, price_cents FROM drinks WHERE id = ? AND active = 1', drinkId);
     if (!drink) throw new HttpError(404, 'Getränk nicht gefunden.');
@@ -249,9 +286,9 @@ async function createApp(config = {}) {
 
   admin.get('/overview', async (_req, res) => {
     const event = await latestEvent();
-    const users = await db.all(`SELECT id, username, display_name AS displayName, is_admin AS isAdmin
+    const users = await db.all(`SELECT id, username, display_name AS displayName, is_admin AS isAdmin, approved
                               FROM users ORDER BY display_name COLLATE NOCASE`);
-    const drinks = await db.all(`SELECT id, name, price_cents AS priceCents, active FROM drinks
+    const drinks = await db.all(`SELECT id, name, price_cents AS priceCents, category, active FROM drinks
                                ORDER BY sort_order, name`);
     const cells = event ? await db.all(`
       SELECT user_id AS userId, drink_id AS drinkId, COUNT(*) AS count, SUM(price_cents) AS totalCents
@@ -320,6 +357,7 @@ async function createApp(config = {}) {
     const name = str(req.body.name, 'Name', { max: 60 });
     try {
       const info = await db.run('INSERT INTO events (name) VALUES (?)', name);
+      live.at = 0;
       res.status(201).json({ id: info.lastInsertRowid });
     } catch (e) {
       if (String(e.message).includes('UNIQUE')) throw new HttpError(409, 'Es läuft schon ein Event.');
@@ -329,6 +367,13 @@ async function createApp(config = {}) {
 
   admin.get('/settings', async (_req, res) => {
     res.json(await getSettings());
+  });
+
+  // Bestenliste für alle Gäste ein- oder ausschalten. Admins sehen sie immer.
+  admin.put('/scoreboard', async (req, res) => {
+    await db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('scoreboard', ?)`, req.body.visible ? '1' : '0');
+    live.at = 0;
+    res.json({ ok: true });
   });
 
   // Speichert die Zahlungsdaten und beendet das Event. Danach ist die Liste fest.
@@ -348,6 +393,7 @@ async function createApp(config = {}) {
       [`UPDATE events SET ended_at = datetime('now') WHERE ended_at IS NULL`],
     ]);
     if (!results[3].rowsAffected) throw new HttpError(409, NO_EVENT);
+    live.at = 0;
     res.json({ ok: true });
   });
 
@@ -413,6 +459,7 @@ async function createApp(config = {}) {
     const info = await db.run(`UPDATE events SET ended_at = NULL
                                WHERE id = (SELECT MAX(id) FROM events) AND ended_at IS NOT NULL`);
     if (!info.changes) throw new HttpError(409, 'Kein beendetes Event zum Öffnen.');
+    live.at = 0;
     res.json({ ok: true });
   });
 
@@ -420,8 +467,9 @@ async function createApp(config = {}) {
   admin.post('/drinks', async (req, res) => {
     const name = str(req.body.name, 'Name', { max: 50 });
     const priceCents = priceToCents(req.body.price ?? 0);
+    const cat = category(req.body.category ?? 'bier');
     const maxSort = (await db.get('SELECT COALESCE(MAX(sort_order), 0) AS m FROM drinks')).m;
-    const info = await db.run('INSERT INTO drinks (name, price_cents, sort_order) VALUES (?, ?, ?)', name, priceCents, maxSort + 1);
+    const info = await db.run('INSERT INTO drinks (name, price_cents, category, sort_order) VALUES (?, ?, ?, ?)', name, priceCents, cat, maxSort + 1);
     res.status(201).json({ id: info.lastInsertRowid });
   });
 
@@ -432,7 +480,8 @@ async function createApp(config = {}) {
     const name = req.body.name !== undefined ? str(req.body.name, 'Name', { max: 50 }) : drink.name;
     const price = req.body.price !== undefined ? priceToCents(req.body.price) : drink.price_cents;
     const active = req.body.active !== undefined ? (req.body.active ? 1 : 0) : drink.active;
-    await db.run('UPDATE drinks SET name = ?, price_cents = ?, active = ? WHERE id = ?', name, price, active, id);
+    const cat = req.body.category !== undefined ? category(req.body.category) : drink.category;
+    await db.run('UPDATE drinks SET name = ?, price_cents = ?, category = ?, active = ? WHERE id = ?', name, price, cat, active, id);
     res.json({ ok: true });
   });
 
@@ -451,7 +500,11 @@ async function createApp(config = {}) {
     if (!user) throw new HttpError(404, 'Person nicht gefunden.');
     if (req.body.isAdmin !== undefined) {
       if (id === req.user.id && !req.body.isAdmin) throw new HttpError(400, 'Du kannst dir die Admin-Rechte nicht selbst nehmen.');
-      await db.run('UPDATE users SET is_admin = ? WHERE id = ?', req.body.isAdmin ? 1 : 0, id);
+      // Wer Admin wird, ist auch freigegeben.
+      await db.run('UPDATE users SET is_admin = ?, approved = MAX(approved, ?) WHERE id = ?', req.body.isAdmin ? 1 : 0, req.body.isAdmin ? 1 : 0, id);
+    }
+    if (req.body.approved !== undefined) {
+      await db.run('UPDATE users SET approved = ? WHERE id = ?', req.body.approved ? 1 : 0, id);
     }
     if (req.body.displayName !== undefined) {
       await db.run('UPDATE users SET display_name = ? WHERE id = ?', str(req.body.displayName, 'Anzeigename', { max: 40 }), id);

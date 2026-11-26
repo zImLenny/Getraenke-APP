@@ -33,6 +33,13 @@ function client() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Admin gibt den gerade registrierten Gast frei. Gibt dessen ID zurück.
+async function approve(admin, guest) {
+  const id = (await guest('/me')).data.user.id;
+  assert.equal((await admin(`/admin/users/${id}`, { method: 'PUT', body: { approved: true } })).status, 200);
+  return id;
+}
+
 test('kompletter Ablauf: Admin legt Getränk an, Gast bucht, Admin korrigiert', async () => {
   const admin = client();
   const guest = client();
@@ -55,6 +62,14 @@ test('kompletter Ablauf: Admin legt Getränk an, Gast bucht, Admin korrigiert', 
   assert.equal((await guest('/register', { method: 'POST', body: { username: 'max', displayName: 'Max', password: 'abcdef', code: 'party' } })).status, 201);
   const me = (await guest('/me')).data.user;
   assert.equal(me.isAdmin, false);
+
+  // Neue Gäste warten auf Freigabe
+  assert.equal(me.approved, false);
+  assert.equal((await guest('/consumptions', { method: 'POST', body: { drinkId: bierId } })).status, 403);
+  assert.equal((await guest('/admin/users/' + me.id, { method: 'PUT', body: { approved: true } })).status, 403);
+  assert.equal((await admin('/admin/users/' + me.id, { method: 'PUT', body: { approved: true } })).status, 200);
+  assert.equal((await guest('/me')).data.user.approved, true);
+  await sleep(900);
 
   // Gast darf Plus …
   let r = await guest('/consumptions', { method: 'POST', body: { drinkId: bierId } });
@@ -137,6 +152,7 @@ test('leerer Preis wird abgelehnt, CSV entschärft Formeln', async () => {
 
   const g = client();
   await g('/register', { method: 'POST', body: { username: 'evil', displayName: '=1+1', password: 'abcdef', code: 'party' } });
+  await approve(admin, g);
   await g('/consumptions', { method: 'POST', body: { drinkId: id } });
   assert.match((await admin('/admin/export.csv')).data, /"'=1\+1";"evil";"Saft";1;2,00/);
 });
@@ -147,7 +163,7 @@ test('Admin löscht Person samt Buchungen', async () => {
   const drinkId = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Wasser', price: '1' } })).data.id;
   const g = client();
   await g('/register', { method: 'POST', body: { username: 'tom', password: 'abcdef', code: 'party' } });
-  const id = (await g('/me')).data.user.id;
+  const id = await approve(admin, g);
   await g('/consumptions', { method: 'POST', body: { drinkId } });
   // Offener Betrag: Löschen verweigert, erst nach „bezahlt“ erlaubt
   assert.equal((await admin(`/admin/users/${id}`, { method: 'DELETE' })).status, 409);
@@ -164,6 +180,7 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   const drinkId = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Cola', price: '2,50' } })).data.id;
   const g = client();
   await g('/register', { method: 'POST', body: { username: 'paula', displayName: 'Pau\nla', password: 'abcdef', code: 'party' } });
+  await approve(admin, g);
   await g('/consumptions', { method: 'POST', body: { drinkId } });
   assert.equal((await g('/me/summary')).data.payment, null);
 
@@ -236,4 +253,43 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   const s2 = (await g('/me/summary')).data;
   assert.equal(s2.event.name, 'Abend 2');
   assert.equal(s2.totalCents, 0);
+});
+
+test('Kategorien und Bestenliste: live, für Gäste ein- und ausschaltbar', async () => {
+  const admin = client();
+  await admin('/login', { method: 'POST', body: { username: 'admin', password: 'geheim123' } });
+  assert.equal((await admin('/admin/drinks', { method: 'POST', body: { name: 'X', price: '1', category: 'wein' } })).status, 400);
+  const pils = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Pils', price: '3', category: 'bier' } })).data.id;
+  const aperol = (await admin('/admin/drinks', { method: 'POST', body: { name: 'Aperol', price: '5', category: 'misch' } })).data.id;
+  assert.equal((await admin(`/admin/drinks/${aperol}`, { method: 'PUT', body: { category: 'bier' } })).status, 200);
+  assert.equal((await admin('/admin/overview')).data.drinks.find((d) => d.id === aperol).category, 'bier');
+  await admin(`/admin/drinks/${aperol}`, { method: 'PUT', body: { category: 'misch' } });
+
+  const a = client();
+  const b = client();
+  await a('/register', { method: 'POST', body: { username: 'anton', displayName: 'Anton', password: 'abcdef', code: 'party' } });
+  await b('/register', { method: 'POST', body: { username: 'berta', displayName: 'Berta', password: 'abcdef', code: 'party' } });
+  assert.equal((await b('/live')).data.approved, false);
+  await approve(admin, a);
+  await approve(admin, b);
+  // Event „Abend 2“ aus dem vorherigen Test läuft noch.
+  await a('/consumptions', { method: 'POST', body: { drinkId: pils } });
+  await sleep(900);
+  await a('/consumptions', { method: 'POST', body: { drinkId: pils } });
+  await b('/consumptions', { method: 'POST', body: { drinkId: pils } });
+  await b('/consumptions', { method: 'POST', body: { drinkId: aperol } });
+
+  // Aus: nur der Admin sieht die Bestenliste
+  await admin('/admin/scoreboard', { method: 'PUT', body: { visible: false } });
+  assert.equal((await a('/live')).data.board, null);
+  const adminBoard = (await admin('/live')).data;
+  assert.equal(adminBoard.boardVisible, false);
+  assert.deepEqual([adminBoard.board.bier.name, adminBoard.board.bier.count], ['Anton', 2]);
+  assert.deepEqual([adminBoard.board.misch.name, adminBoard.board.misch.count], ['Berta', 1]);
+
+  // An: alle sehen sie
+  await admin('/admin/scoreboard', { method: 'PUT', body: { visible: true } });
+  assert.equal((await admin('/admin/settings')).data.scoreboard, true);
+  assert.equal((await b('/live')).data.board.bier.name, 'Anton');
+  assert.equal((await client()('/live')).status, 401);
 });

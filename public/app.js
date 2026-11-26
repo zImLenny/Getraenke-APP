@@ -151,17 +151,43 @@ function field(labelText, name, type, autocomplete) {
 
 const eventKey = (ev) => (ev ? `${ev.id}:${ev.endedAt || ''}` : '');
 
+const CATEGORY_LABEL = { bier: 'Bier', misch: 'Mischgetränk' };
+
+// Bestenliste unter den Plus-Knöpfen. Admins sehen sie immer, Gäste nur wenn eingeschaltet.
+function drawBoard(el, l) {
+  if (!l.board) return el.replaceChildren();
+  const tile = (icon, label, top) => h('div', { class: 'card stat' },
+    h('div', { class: 'l' }, `${icon} Meiste ${label}`),
+    h('div', { class: 'v' }, top ? top.name : '–'),
+    h('div', { class: 'muted small' }, top ? `${top.count} Getränk${top.count === 1 ? '' : 'e'}` : 'Noch niemand'));
+  el.replaceChildren(
+    h('h2', { style: 'margin-top:20px' }, 'Bestenliste'),
+    l.boardVisible ? '' : h('p', { class: 'muted small' }, 'Nur Admins sehen das. Für alle einschalten: Admin → Event.'),
+    h('div', { class: 'board' }, tile('🍺', 'Biere', l.board.bier), tile('🍹', 'Mischgetränke', l.board.misch)));
+}
+
 async function renderGuest() {
-  const [{ drinks }, summary] = await Promise.all([api('/drinks'), api('/me/summary')]);
+  const [{ drinks }, summary, live] = await Promise.all([api('/drinks'), api('/me/summary'), api('/live')]);
   setEvent(summary.event);
-  // Startet oder endet das Event, wechselt die Ansicht von selbst.
-  const key = eventKey(summary.event);
+  const board = h('div');
+  drawBoard(board, live);
+  // Startet/endet das Event oder gibt der Admin frei, wechselt die Ansicht von selbst. Sonst: Bestenliste aktualisieren.
+  const key = (l) => `${eventKey(l.event)}|${l.approved}`;
+  const first = key(live);
   clearInterval(state.pollTimer);
   state.pollTimer = setInterval(async () => {
-    const s = await api('/me').catch(() => null);
-    if (s && eventKey(s.event) !== key) route();
+    const l = await api('/live').catch(() => null);
+    if (!l) return;
+    if (key(l) !== first) return loadMe().then(route);
+    drawBoard(board, l);
   }, 10000);
 
+  if (!live.approved) {
+    $app.replaceChildren(h('div', { class: 'card center stack' },
+      h('h2', {}, `Hallo ${state.user.displayName}!`),
+      h('p', { class: 'muted' }, 'Dein Konto wartet auf Freigabe durch den Admin. Danach kannst du Getränke buchen. Die Seite aktualisiert sich von selbst.')));
+    return;
+  }
   if (!summary.event) {
     $app.replaceChildren(h('div', { class: 'card muted center' }, 'Gerade läuft kein Event. Bitte warte, bis der Admin es startet.'));
     return;
@@ -207,6 +233,7 @@ async function renderGuest() {
     drinks.length
       ? h('div', { class: 'drinks' }, list)
       : h('div', { class: 'card muted center' }, 'Noch keine Getränke angelegt.'),
+    board,
     h('div', { class: 'totalbar' }, totalCount, totalSum),
   );
 }
@@ -274,9 +301,13 @@ async function adminOverview(body) {
     draw(data);
   }
 
-  function draw({ event, users, drinks, cells }) {
+  function draw({ event, users: all, drinks, cells }) {
+    const users = all.filter((u) => u.approved);
+    const pending = all.length - users.length;
+    const notice = pending ? h('a', { class: 'card notice', href: '#/admin/users' },
+      `${pending} ${pending === 1 ? 'Person wartet' : 'Personen warten'} auf Freigabe → Personen`) : null;
     if (!event) {
-      body.replaceChildren(h('div', { class: 'card muted center' }, 'Noch kein Event. Starte eins im Tab „Event“.'));
+      body.replaceChildren(notice || '', h('div', { class: 'card muted center' }, 'Noch kein Event. Starte eins im Tab „Event“.'));
       return;
     }
     const open = !event.endedAt;
@@ -306,6 +337,7 @@ async function adminOverview(body) {
     });
 
     body.replaceChildren(
+      notice || '',
       h('div', { class: 'stats' },
         stat(users.length, 'Personen'),
         stat(grandCount, 'Getränke gesamt'),
@@ -358,7 +390,7 @@ function inputField(labelText, name, value, placeholder) {
 }
 
 function eventList(events) {
-  if (!events.length) return null;
+  if (!events.length) return ''; // '' statt null: replaceChildren schreibt null sonst als Text
   return h('div', {},
     h('h2', { style: 'margin-top:20px' }, 'Alle Events'),
     h('div', { class: 'scroll' }, h('table', {},
@@ -434,6 +466,18 @@ async function adminEvent(body, id) {
   const [{ event }, settings, { events }] = await Promise.all([api('/me'), api('/admin/settings'), api('/admin/events')]);
   setEvent(event);
   const err = h('p', { class: 'error' });
+  const boardBox = h('input', { type: 'checkbox', checked: settings.scoreboard, onchange: async () => {
+    try {
+      await api('/admin/scoreboard', { method: 'PUT', body: { visible: boardBox.checked } });
+      toast(boardBox.checked ? 'Bestenliste für alle sichtbar' : 'Bestenliste nur für Admins');
+    } catch (ex) {
+      boardBox.checked = !boardBox.checked;
+      toast(ex.message, true);
+    }
+  } });
+  const boardCard = h('div', { class: 'card', style: 'margin-top:12px' },
+    h('label', { class: 'paidbox' }, boardBox, 'Bestenliste für alle Gäste sichtbar'),
+    h('p', { class: 'muted small', style: 'margin:6px 0 0' }, 'Zeigt unter den Plus-Knöpfen, wer am meisten Bier und Mischgetränke hatte.'));
 
   if (!event || event.endedAt) {
     const form = h('form', { class: 'stack', onsubmit: async (e) => {
@@ -458,9 +502,10 @@ async function adminEvent(body, id) {
             toast('Event wieder geöffnet');
             adminEvent(body);
           } catch (ex) { toast(ex.message, true); }
-        } }, 'Event wieder öffnen')) : null,
-      event ? h('div', { style: 'height:12px' }) : null,
+        } }, 'Event wieder öffnen')) : '',
+      event ? h('div', { style: 'height:12px' }) : '',
       h('div', { class: 'card stack' }, h('h2', {}, 'Neues Event'), form),
+      boardCard,
       eventList(events));
     return;
   }
@@ -486,7 +531,14 @@ async function adminEvent(body, id) {
     h('p', { class: 'muted small' }, `Gestartet am ${time(event.startedAt)}.`),
     h('button', { class: 'btn danger', onclick: (e) => { e.currentTarget.hidden = true; endForm.hidden = false; } }, 'Event beenden'),
     endForm),
+    boardCard,
     eventList(events));
+}
+
+function categorySelect(attrs, value) {
+  const sel = h('select', attrs, Object.entries(CATEGORY_LABEL).map(([k, label]) => h('option', { value: k }, label)));
+  sel.value = value;
+  return sel;
 }
 
 async function adminDrinks(body) {
@@ -504,11 +556,13 @@ async function adminDrinks(body) {
   } },
     h('div', {}, h('label', { for: 'nd_name' }, 'Name'), h('input', { id: 'nd_name', name: 'name', type: 'text', required: true, placeholder: 'z. B. Bier 0,5 l' })),
     h('div', {}, h('label', { for: 'nd_price' }, 'Preis (€)'), h('input', { id: 'nd_price', name: 'price', type: 'text', inputmode: 'decimal', placeholder: '3,50', required: true })),
+    h('div', {}, h('label', { for: 'nd_cat' }, 'Kategorie'), categorySelect({ id: 'nd_cat', name: 'category' }, 'bier')),
     h('button', { class: 'btn primary', type: 'submit' }, 'Hinzufügen'));
 
   const rows = drinks.map((d) => {
     const name = h('input', { type: 'text', class: 'inline-input', value: d.name, 'aria-label': 'Name' });
     const price = h('input', { type: 'text', class: 'inline-input', inputmode: 'decimal', value: (d.priceCents / 100).toFixed(2).replace('.', ','), 'aria-label': 'Preis', style: 'max-width:90px' });
+    const cat = categorySelect({ class: 'inline-input', 'aria-label': 'Kategorie' }, d.category);
     const save = async (patch, msg) => {
       try {
         await api(`/admin/drinks/${d.id}`, { method: 'PUT', body: patch });
@@ -519,9 +573,10 @@ async function adminDrinks(body) {
     return h('tr', {},
       h('td', {}, name),
       h('td', {}, price),
+      h('td', {}, cat),
       h('td', {}, d.active ? 'aktiv' : h('span', { class: 'muted' }, 'inaktiv')),
       h('td', {}, h('div', { class: 'actions' },
-        h('button', { class: 'btn sm primary', onclick: () => save({ name: name.value, price: price.value }, 'Gespeichert') }, 'Speichern'),
+        h('button', { class: 'btn sm primary', onclick: () => save({ name: name.value, price: price.value, category: cat.value }, 'Gespeichert') }, 'Speichern'),
         h('button', { class: 'btn sm', onclick: () => save({ active: !d.active }, d.active ? 'Deaktiviert' : 'Aktiviert') }, d.active ? 'Deaktivieren' : 'Aktivieren'),
         h('button', { class: 'btn sm danger', onclick: async () => {
           if (!confirm(`„${d.name}“ löschen?`)) return;
@@ -537,10 +592,10 @@ async function adminDrinks(body) {
     h('div', { class: 'card stack' }, h('h2', {}, 'Neues Getränk'), addForm, err),
     h('p', { class: 'muted small' }, 'Preisänderungen gelten nur für neue Buchungen. Inaktive Getränke sehen Gäste nicht.'),
     drinks.length
-      ? h('div', { class: 'scroll' }, h('table', {},
-          h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Preis (€)'), h('th', {}, 'Status'), h('th', {}))),
+      ? h('div', { class: 'scroll' }, h('table', { style: 'min-width:680px' }, // auf dem Handy seitlich scrollen statt quetschen
+          h('thead', {}, h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Preis (€)'), h('th', {}, 'Kategorie'), h('th', {}, 'Status'), h('th', {}))),
           h('tbody', {}, rows)))
-      : null,
+      : '',
   );
 }
 
@@ -554,10 +609,13 @@ async function adminUsers(body) {
     } catch (ex) { toast(ex.message, true); }
   };
 
-  const rows = users.map((u) => h('tr', {},
+  // Wartende zuerst.
+  const sorted = [...users].sort((a, b) => a.approved - b.approved);
+  const rows = sorted.map((u) => h('tr', {},
     h('td', {}, u.displayName, h('div', { class: 'muted small' }, '@' + u.username)),
-    h('td', {}, u.isAdmin ? h('span', { class: 'badge' }, 'Admin') : 'Gast'),
+    h('td', {}, u.isAdmin ? h('span', { class: 'badge' }, 'Admin') : u.approved ? 'Gast' : h('span', { class: 'badge wait' }, 'wartet')),
     h('td', {}, h('div', { class: 'actions' },
+      !u.approved && h('button', { class: 'btn sm primary', onclick: () => call(`/admin/users/${u.id}`, { method: 'PUT', body: { approved: true } }, `${u.displayName} freigegeben`) }, 'Freigeben'),
       h('button', { class: 'btn sm', onclick: () => call(`/admin/users/${u.id}`, { method: 'PUT', body: { isAdmin: !u.isAdmin } }, 'Rolle geändert') },
         u.isAdmin ? 'Admin entziehen' : 'Zum Admin machen'),
       h('button', { class: 'btn sm', onclick: () => {
@@ -571,7 +629,7 @@ async function adminUsers(body) {
       } }, 'Löschen')))));
 
   body.replaceChildren(
-    h('p', { class: 'muted small' }, 'Gäste registrieren sich selbst über die Startseite.'),
+    h('p', { class: 'muted small' }, 'Gäste registrieren sich selbst über die Startseite. Danach gibst du sie hier frei. Ablehnen = Löschen.'),
     h('div', { class: 'scroll' }, h('table', {},
       h('thead', {}, h('tr', {}, h('th', {}, 'Person'), h('th', {}, 'Rolle'), h('th', {}))),
       h('tbody', {}, rows))));
