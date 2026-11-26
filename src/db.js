@@ -14,6 +14,7 @@ async function openDatabase(url, authToken) {
       display_name  TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       is_admin      INTEGER NOT NULL DEFAULT 0,
+      approved      INTEGER NOT NULL DEFAULT 1,
       created_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -27,6 +28,7 @@ async function openDatabase(url, authToken) {
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       name        TEXT NOT NULL,
       price_cents INTEGER NOT NULL DEFAULT 0,
+      category    TEXT NOT NULL DEFAULT 'bier',
       active      INTEGER NOT NULL DEFAULT 1,
       sort_order  INTEGER NOT NULL DEFAULT 0,
       created_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -72,22 +74,26 @@ async function openDatabase(url, authToken) {
     );
   `);
 
-  // Alte Datenbanken ohne Events: Spalte nachrüsten, alte Buchungen in ein beendetes Event legen.
-  const cols = (await client.execute('PRAGMA table_info(consumptions)')).rows;
-  if (!cols.some((c) => c.name === 'event_id')) {
-    await client.execute('ALTER TABLE consumptions ADD COLUMN event_id INTEGER REFERENCES events(id)');
+  // Ältere Datenbanken: fehlende Spalten nachrüsten. true = Spalte war neu.
+  const addColumn = async (table, column, definition) => {
+    if ((await client.execute(`PRAGMA table_info(${table})`)).rows.some((c) => c.name === column)) return false;
+    await client.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    return true;
+  };
+  // Bestehende Personen gelten als freigegeben, bestehende Getränke als Bier.
+  await addColumn('users', 'approved', 'INTEGER NOT NULL DEFAULT 1');
+  await addColumn('drinks', 'category', `TEXT NOT NULL DEFAULT 'bier'`);
+  // Alte Buchungen ohne Event landen in einem beendeten Event.
+  if (await addColumn('consumptions', 'event_id', 'INTEGER REFERENCES events(id)')) {
     if ((await client.execute('SELECT 1 FROM consumptions LIMIT 1')).rows.length) {
       const ev = await client.execute(`INSERT INTO events (name, ended_at) VALUES ('Frühere Buchungen', datetime('now'))`);
       await client.execute({ sql: 'UPDATE consumptions SET event_id = ?', args: [ev.lastInsertRowid] });
     }
   }
   // payments ohne Betrag (Version vom 26.11.2026): Haken galten für die damalige Summe.
-  if (!(await client.execute('PRAGMA table_info(payments)')).rows.some((c) => c.name === 'paid_cents')) {
-    await client.executeMultiple(`
-      ALTER TABLE payments ADD COLUMN paid_cents INTEGER NOT NULL DEFAULT 0;
-      UPDATE payments SET paid_cents = (SELECT COALESCE(SUM(c.price_cents), 0) FROM consumptions c
-        WHERE c.event_id = payments.event_id AND c.user_id = payments.user_id AND c.deleted_at IS NULL);
-    `);
+  if (await addColumn('payments', 'paid_cents', 'INTEGER NOT NULL DEFAULT 0')) {
+    await client.execute(`UPDATE payments SET paid_cents = (SELECT COALESCE(SUM(c.price_cents), 0) FROM consumptions c
+      WHERE c.event_id = payments.event_id AND c.user_id = payments.user_id AND c.deleted_at IS NULL)`);
   }
   await client.executeMultiple(`
     DROP INDEX IF EXISTS idx_cons_user_drink;

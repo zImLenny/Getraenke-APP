@@ -81,7 +81,7 @@ main { max-width: 960px; margin: 0 auto; padding: 16px; }
 .btn.block { width: 100%; }
 
 label { display: block; font-size: .9rem; color: var(--muted); margin-bottom: 4px; }
-input[type=text], input[type=password], input[type=number] {
+input[type=text], input[type=password], input[type=number], select {
   width: 100%; padding: 10px 12px; border-radius: 10px;
   border: 1px solid var(--border); background: var(--surface); min-height: 44px;
 }
@@ -146,7 +146,7 @@ tfoot td { font-weight: 700; background: var(--surface-2); }
 .stepper .n.zero { color: var(--muted); font-weight: 400; }
 .right { text-align: right !important; }
 .badge { display: inline-block; font-size: .75rem; padding: 2px 8px; border-radius: 99px; background: var(--accent-soft); color: var(--text); }
-.row-form { display: grid; grid-template-columns: 1fr 120px auto; gap: 8px; align-items: end; }
+.row-form { display: grid; grid-template-columns: 1fr 110px 160px auto; gap: 8px; align-items: end; }
 @media (max-width: 520px) { .row-form { grid-template-columns: 1fr 1fr; } .row-form .btn { grid-column: 1 / -1; } }
 .inline-input { min-height: 36px !important; padding: 6px 8px !important; }
 .strike { text-decoration: line-through; color: var(--muted); }
@@ -174,6 +174,10 @@ tfoot td { font-weight: 700; background: var(--surface-2); }
 .person details { margin-top: 8px; }
 .person summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
 .person details table { margin-top: 6px; }
+.board { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.board .v { overflow-wrap: anywhere; }
+.badge.wait { background: var(--danger); color: #fff; }
+.notice { display: block; margin-bottom: 12px; font-weight: 600; color: var(--danger); text-decoration: none; }
 .qr { display: block; margin: 0 auto; max-width: 100%; height: auto; background: #fff; border-radius: 8px; }
 .copyrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .copyrow .num { overflow-wrap: anywhere; }

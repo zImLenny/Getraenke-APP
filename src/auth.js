@@ -53,10 +53,11 @@ function createAuth(db, { secureCookies }) {
     async middleware(req, _res, next) {
       const token = parseCookies(req.headers.cookie)[COOKIE];
       const user = token ? await db.get(`
-        SELECT u.id, u.username, u.display_name AS displayName, u.is_admin AS isAdmin
+        SELECT u.id, u.username, u.display_name AS displayName, u.is_admin AS isAdmin, u.approved
         FROM sessions s JOIN users u ON u.id = s.user_id
         WHERE s.token = ? AND s.expires_at > datetime('now')`, token) : null;
-      req.user = user ? { ...user, isAdmin: !!user.isAdmin } : null;
+      // Admins dürfen immer buchen, auch ohne Freigabe-Haken.
+      req.user = user ? { ...user, isAdmin: !!user.isAdmin, approved: !!(user.approved || user.isAdmin) } : null;
       next();
     },
   };
