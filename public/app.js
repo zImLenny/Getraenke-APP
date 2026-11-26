@@ -405,7 +405,7 @@ function eventList(events) {
 // Text zum Kopieren für Personen, die noch nicht (vollständig) bezahlt haben.
 function reminderText(event, pay, p, openCents) {
   const lines = [`Getränke-Abrechnung – ${event.label}`, '', `Hi ${p.displayName},`, '',
-    `vom Event „${event.label}“ sind bei dir noch ${fmt(openCents)} für Getränke offen. Kannst du den Betrag bitte bald überweisen?`];
+    `vom Event „${event.label}“ sind bei dir noch ${fmt(openCents)} für Getränke offen. Kannst du den Betrag bitte möglichst bald überweisen?`];
   if (pay.iban) {
     lines.push('', `Empfänger: ${pay.payeeName}`, `IBAN: ${pay.iban.replace(/(.{4})/g, '$1 ').trim()}`,
       `Betrag: ${fmt(openCents)}`, `Verwendungszweck: ${p.reference}`);
