@@ -62,11 +62,12 @@ async function openDatabase(url, authToken) {
       event_id    INTEGER REFERENCES events(id)
     );
 
-    -- Admin hakt ab: Person hat für dieses Event bezahlt.
+    -- Admin hakt ab: Person hat für dieses Event paid_cents bezahlt.
     CREATE TABLE IF NOT EXISTS payments (
-      event_id INTEGER NOT NULL REFERENCES events(id),
-      user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      paid_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      event_id   INTEGER NOT NULL REFERENCES events(id),
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      paid_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      paid_cents INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (event_id, user_id)
     );
   `);
@@ -79,6 +80,14 @@ async function openDatabase(url, authToken) {
       const ev = await client.execute(`INSERT INTO events (name, ended_at) VALUES ('Frühere Buchungen', datetime('now'))`);
       await client.execute({ sql: 'UPDATE consumptions SET event_id = ?', args: [ev.lastInsertRowid] });
     }
+  }
+  // payments ohne Betrag (Version vom 26.11.2026): Haken galten für die damalige Summe.
+  if (!(await client.execute('PRAGMA table_info(payments)')).rows.some((c) => c.name === 'paid_cents')) {
+    await client.executeMultiple(`
+      ALTER TABLE payments ADD COLUMN paid_cents INTEGER NOT NULL DEFAULT 0;
+      UPDATE payments SET paid_cents = (SELECT COALESCE(SUM(c.price_cents), 0) FROM consumptions c
+        WHERE c.event_id = payments.event_id AND c.user_id = payments.user_id AND c.deleted_at IS NULL);
+    `);
   }
   await client.executeMultiple(`
     DROP INDEX IF EXISTS idx_cons_user_drink;

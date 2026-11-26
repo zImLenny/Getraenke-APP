@@ -357,7 +357,9 @@ async function createApp(config = {}) {
       SELECT e.id, e.name, e.started_at AS startedAt, e.ended_at AS endedAt,
              COALESCE(SUM(c.price_cents), 0) AS totalCents,
              COUNT(DISTINCT c.user_id) AS people,
-             (SELECT COUNT(*) FROM payments p WHERE p.event_id = e.id) AS paid
+             (SELECT COUNT(*) FROM payments p WHERE p.event_id = e.id AND p.paid_cents >=
+                (SELECT COALESCE(SUM(c2.price_cents), 0) FROM consumptions c2
+                 WHERE c2.event_id = e.id AND c2.user_id = p.user_id AND c2.deleted_at IS NULL)) AS paid
       FROM events e LEFT JOIN consumptions c ON c.event_id = e.id AND c.deleted_at IS NULL
       GROUP BY e.id ORDER BY e.id DESC`);
     res.json({ events });
@@ -369,7 +371,7 @@ async function createApp(config = {}) {
     const event = await db.get(`SELECT id, name, started_at AS startedAt, ended_at AS endedAt FROM events WHERE id = ?`, id);
     if (!event) throw new HttpError(404, 'Event nicht gefunden.');
     const rows = await db.all(`
-      SELECT u.id AS userId, u.display_name AS displayName, u.username, p.paid_at AS paidAt,
+      SELECT u.id AS userId, u.display_name AS displayName, u.username, p.paid_cents AS paidCents,
              d.name AS drink, COUNT(*) AS count, SUM(c.price_cents) AS totalCents
       FROM consumptions c
       JOIN users u ON u.id = c.user_id
@@ -381,7 +383,7 @@ async function createApp(config = {}) {
     const people = new Map();
     for (const r of rows) {
       const p = people.get(r.userId) || { userId: r.userId, displayName: r.displayName, username: r.username,
-        paidAt: r.paidAt, totalCents: 0, totalCount: 0, drinks: [] };
+        paidCents: r.paidCents, totalCents: 0, totalCount: 0, drinks: [] };
       p.totalCents += r.totalCents;
       p.totalCount += r.count;
       p.drinks.push({ name: r.drink, count: r.count, totalCents: r.totalCents });
@@ -395,13 +397,15 @@ async function createApp(config = {}) {
     const userId = intId(req.params.userId);
     if (!req.body.paid) {
       await db.run('DELETE FROM payments WHERE event_id = ? AND user_id = ?', eventId, userId);
-      return res.json({ ok: true });
+      return res.json({ paidCents: null });
     }
-    const info = await db.run(`INSERT OR REPLACE INTO payments (event_id, user_id) SELECT ?, ?
-      WHERE EXISTS (SELECT 1 FROM events WHERE id = ?) AND EXISTS (SELECT 1 FROM users WHERE id = ?)`,
+    // Speichert die aktuelle Summe. Kommen später Getränke dazu, ist der Rest wieder offen.
+    const info = await db.run(`INSERT OR REPLACE INTO payments (event_id, user_id, paid_cents)
+      SELECT ?, ?, SUM(price_cents) FROM consumptions
+      WHERE event_id = ? AND user_id = ? AND deleted_at IS NULL HAVING COUNT(*) > 0`,
       eventId, userId, eventId, userId);
-    if (!info.changes) throw new HttpError(404, 'Event oder Person nicht gefunden.');
-    res.json({ ok: true });
+    if (!info.changes) throw new HttpError(404, 'Keine Buchungen dieser Person in diesem Event.');
+    res.json(await db.get('SELECT paid_cents AS paidCents FROM payments WHERE event_id = ? AND user_id = ?', eventId, userId));
   });
 
   // Öffnet das neueste Event wieder, falls es aus Versehen beendet wurde.
@@ -463,6 +467,13 @@ async function createApp(config = {}) {
   admin.delete('/users/:id', async (req, res) => {
     const id = intId(req.params.id);
     if (id === req.user.id) throw new HttpError(400, 'Du kannst dich nicht selbst löschen.');
+    // Offene Beträge würden mit den Buchungen verschwinden.
+    const open = await db.get(`
+      SELECT 1 FROM (SELECT event_id, SUM(price_cents) AS total FROM consumptions
+                     WHERE user_id = ? AND deleted_at IS NULL GROUP BY event_id) t
+      LEFT JOIN payments p ON p.event_id = t.event_id AND p.user_id = ?
+      WHERE COALESCE(p.paid_cents, 0) < t.total LIMIT 1`, id, id);
+    if (open) throw new HttpError(409, 'Person hat noch offene Beträge. Hake sie erst unter Event als bezahlt ab.');
     // Explizit löschen: Fremdschlüssel-Regeln sind bei Turso nicht garantiert aktiv.
     await db.batch([
       ['DELETE FROM sessions WHERE user_id = ?', id],

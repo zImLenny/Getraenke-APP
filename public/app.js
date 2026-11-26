@@ -374,19 +374,29 @@ function eventList(events) {
 async function adminEventDetail(body, id) {
   const { event, people } = await api(`/admin/events/${id}`);
   const stats = h('div', { class: 'stats' });
+  const paidOf = (p) => Math.min(p.paidCents || 0, p.totalCents);
   const drawStats = () => {
     const total = people.reduce((s, p) => s + p.totalCents, 0);
-    const paid = people.filter((p) => p.paidAt).reduce((s, p) => s + p.totalCents, 0);
+    const paid = people.reduce((s, p) => s + paidOf(p), 0);
     stats.replaceChildren(stat(fmt(total), 'Summe'), stat(fmt(paid), 'Bezahlt'), stat(fmt(total - paid), 'Offen'));
   };
   drawStats();
 
   const cards = people.map((p) => {
-    const box = h('input', { type: 'checkbox', checked: !!p.paidAt, onchange: async () => {
+    const full = () => p.paidCents != null && p.paidCents >= p.totalCents;
+    const note = h('div', { class: 'small' });
+    const drawNote = () => {
+      const partial = p.paidCents != null && !full();
+      note.textContent = partial ? `${fmt(p.paidCents)} bezahlt, ${fmt(p.totalCents - p.paidCents)} offen` : '';
+      note.className = 'small' + (partial ? ' error' : '');
+      card.classList.toggle('paid', full());
+      box.checked = full();
+    };
+    const box = h('input', { type: 'checkbox', onchange: async () => {
       try {
-        await api(`/admin/events/${event.id}/payments/${p.userId}`, { method: 'PUT', body: { paid: box.checked } });
-        p.paidAt = box.checked;
-        card.classList.toggle('paid', box.checked);
+        const r = await api(`/admin/events/${event.id}/payments/${p.userId}`, { method: 'PUT', body: { paid: box.checked } });
+        p.paidCents = r.paidCents;
+        drawNote();
         drawStats();
         toast(`${p.displayName}: ${box.checked ? 'bezahlt' : 'offen'}`);
       } catch (ex) {
@@ -394,16 +404,18 @@ async function adminEventDetail(body, id) {
         toast(ex.message, true);
       }
     } });
-    const card = h('div', { class: 'card person' + (p.paidAt ? ' paid' : '') },
+    const card = h('div', { class: 'card person' },
       h('div', { class: 'person-head' },
         h('div', { class: 'who' }, h('div', { class: 'name' }, p.displayName), h('div', { class: 'muted small' }, '@' + p.username)),
         h('div', { class: 'total num' }, fmt(p.totalCents)),
         h('label', { class: 'paidbox' }, box, 'bezahlt')),
+      note,
       h('details', {},
         h('summary', {}, `Getränke anzeigen (${p.totalCount})`),
         h('table', {}, h('tbody', {}, p.drinks.map((d) => h('tr', {},
           h('td', {}, `${d.count} × ${d.name}`),
           h('td', { class: 'right num' }, fmt(d.totalCents))))))));
+    drawNote();
     return card;
   });
 
