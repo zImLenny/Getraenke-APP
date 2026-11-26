@@ -155,14 +155,14 @@ const eventKey = (ev) => (ev ? `${ev.id}:${ev.endedAt || ''}` : '');
 // Bestenliste unter den Plus-Knöpfen. Admins sehen sie immer, Gäste nur wenn eingeschaltet.
 function drawBoard(el, l) {
   if (!l.board) return el.replaceChildren();
-  const tile = (icon, label, top) => h('div', { class: 'card stat' },
-    h('div', { class: 'l' }, `${icon} Meiste ${label}`),
+  const tile = (icon, [one, many], top) => h('div', { class: 'card stat' },
+    h('div', { class: 'l' }, `${icon} Meiste ${many}`),
     h('div', { class: 'v' }, top ? top.name : '–'),
-    h('div', { class: 'muted small' }, top ? `${top.count} Getränk${top.count === 1 ? '' : 'e'}` : 'Noch niemand'));
+    h('div', { class: 'muted small' }, top ? `${top.count} ${top.count === 1 ? one : many}` : 'Noch niemand'));
   el.replaceChildren(
     h('h2', { style: 'margin-top:20px' }, 'Bestenliste'),
     l.boardVisible ? '' : h('p', { class: 'muted small' }, 'Nur Admins sehen das. Für alle einschalten: Admin → Event.'),
-    h('div', { class: 'board' }, tile('🍺', 'Biere', l.board.bier), tile('🍹', 'Mischgetränke', l.board.misch)));
+    h('div', { class: 'board' }, tile('🍺', ['Bier', 'Biere'], l.board.bier), tile('🍹', ['Mischgetränk', 'Mischgetränke'], l.board.misch)));
 }
 
 async function renderGuest() {
@@ -402,8 +402,22 @@ function eventList(events) {
 }
 
 // Ein Event: jede Person mit Endsumme, aufklappbarer Getränkeliste und Haken „bezahlt“.
+// Text zum Kopieren für Personen, die noch nicht (vollständig) bezahlt haben.
+function reminderText(event, pay, p, openCents) {
+  const lines = [`${event.name} – ${event.date}`, '', `Hi ${p.displayName},`, '',
+    `du hast für „${event.name}“ am ${event.date} bisher ${fmt(openCents)} noch nicht überwiesen. Bitte überweise den Betrag, sobald du kannst.`];
+  if (pay.iban) {
+    lines.push('', `Empfänger: ${pay.payeeName}`, `IBAN: ${pay.iban.replace(/(.{4})/g, '$1 ').trim()}`,
+      `Betrag: ${fmt(openCents)}`, `Verwendungszweck: ${p.reference}`);
+  }
+  // Gleiches Link-Format wie paymentInfo in src/app.js.
+  if (pay.paypal) lines.push('', `Oder per PayPal: https://paypal.me/${pay.paypal}/${(openCents / 100).toFixed(2)}EUR`);
+  lines.push('', 'Danke!');
+  return lines.join('\n');
+}
+
 async function adminEventDetail(body, id) {
-  const { event, people } = await api(`/admin/events/${id}`);
+  const { event, people, payment } = await api(`/admin/events/${id}`);
   const stats = h('div', { class: 'stats' });
   const paidOf = (p) => Math.min(p.paidCents || 0, p.totalCents);
   const drawStats = () => {
@@ -415,11 +429,15 @@ async function adminEventDetail(body, id) {
 
   const cards = people.map((p) => {
     const full = () => p.paidCents != null && p.paidCents >= p.totalCents;
+    const open = () => p.totalCents - paidOf(p);
     const note = h('div', { class: 'small' });
+    const copyBtn = h('button', { class: 'btn sm', onclick: () => navigator.clipboard.writeText(reminderText(event, payment, p, open()))
+      .then(() => toast(`Erinnerung für ${p.displayName} kopiert`), () => toast('Kopieren geht hier nicht.', true)) }, 'Erinnerung kopieren');
     const drawNote = () => {
       const partial = p.paidCents != null && !full();
       note.textContent = partial ? `${fmt(p.paidCents)} bezahlt, ${fmt(p.totalCents - p.paidCents)} offen` : '';
       note.className = 'small' + (partial ? ' error' : '');
+      copyBtn.hidden = full();
       card.classList.toggle('paid', full());
       box.checked = full();
     };
@@ -440,7 +458,7 @@ async function adminEventDetail(body, id) {
         h('div', { class: 'who' }, h('div', { class: 'name' }, p.displayName), h('div', { class: 'muted small' }, '@' + p.username)),
         h('div', { class: 'total num' }, fmt(p.totalCents)),
         h('label', { class: 'paidbox' }, box, 'bezahlt')),
-      note,
+      h('div', { class: 'person-actions' }, note, copyBtn),
       h('details', {},
         h('summary', {}, `Getränke anzeigen (${p.totalCount})`),
         h('table', {}, h('tbody', {}, p.drinks.map((d) => h('tr', {},
