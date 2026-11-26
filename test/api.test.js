@@ -16,7 +16,7 @@ after(() => server.close());
 // Kleiner Client, der den Sitzungs-Cookie behält.
 function client() {
   let cookie = '';
-  return async (path, { method = 'GET', body } = {}) => {
+  const call = async (path, { method = 'GET', body } = {}) => {
     const res = await fetch(base + path, {
       method,
       headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
@@ -29,6 +29,8 @@ function client() {
     try { data = JSON.parse(text); } catch { data = text; }
     return { status: res.status, data };
   };
+  call.cookie = () => cookie;
+  return call;
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -340,6 +342,15 @@ test('Event-Jahr in deutscher Zeit, Jahr nicht doppelt im Namen', () => {
   assert.equal(eventYear({ startedAt: '2026-12-31 23:30:00' }), '2027'); // 00:30 Uhr in Berlin
   assert.equal(eventLabel({ name: 'Sommerfest', startedAt: '2026-07-01 18:00:00' }), 'Sommerfest 2026');
   assert.equal(eventLabel({ name: 'Sommerfest 2026', startedAt: '2026-07-01 18:00:00' }), 'Sommerfest 2026');
+});
+
+test('IP hinter Proxy: TRUST_PROXY=1 nimmt den letzten Eintrag aus X-Forwarded-For', async () => {
+  const admin = client();
+  await admin('/login', { method: 'POST', body: { username: 'admin', password: 'geheim123' } });
+  const res = await fetch(base + '/admin/whoami', { headers: { Cookie: admin.cookie(), 'X-Forwarded-For': '6.6.6.6, 1.2.3.4' } });
+  const who = await res.json();
+  assert.equal(who.ip, '1.2.3.4'); // 6.6.6.6 könnte gefälscht sein
+  assert.equal(who.trustProxy, 1);
 });
 
 test('Kategorien kommen vom Server', async () => {

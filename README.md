@@ -75,6 +75,7 @@ npm test
 | `DATABASE_AUTH_TOKEN` | Zugangs-Token für Turso. |
 | `DB_FILE` | Pfad zur lokalen SQLite-Datei, falls `DATABASE_URL` fehlt. Standard: `data/getraenke.db`. |
 | `SECURE_COOKIES` | Auf `true` setzen, sobald die App über HTTPS läuft. |
+| `TRUST_PROXY` | Anzahl Proxys vor der App. Standard: `1`. Prüfen: Admin → Personen zeigt „Deine IP laut Server“. Steht dort nicht deine echte IP, Wert um 1 erhöhen. |
 
 Lokal liegen alle Daten in **einer** SQLite-Datei. Mit Turso liegen die Daten in der Cloud.
 
