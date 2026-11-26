@@ -1,6 +1,6 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
-const { createApp } = require('../src/app');
+const { createApp, eventDate } = require('../src/app');
 
 let server;
 let base;
@@ -199,7 +199,7 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   assert.equal(s.payment.iban, 'DE89370400440532013000');
   assert.equal(s.payment.paypalUrl, 'https://paypal.me/lenny/2.50EUR');
   assert.match(s.payment.qr, /^data:image\/png;base64,/);
-  assert.match(s.payment.reference, /Getränke Testabend Pau la$/); // kein Zeilenumbruch im QR-Code
+  assert.match(s.payment.reference, /^Getränke Testabend \d{2}\.\d{2}\.\d{4} Pau la$/); // mit Datum, ohne Zeilenumbruch
 
   // Liste ist fest
   await sleep(900); // Doppel-Tipp-Schutz abwarten
@@ -225,6 +225,9 @@ test('Event beenden: Liste ist fest, Gast sieht Abrechnung mit QR-Code und PayPa
   assert.equal(paula.totalCents, 500);
   assert.deepEqual(paula.drinks, [{ name: 'Cola', count: 2, totalCents: 500 }]);
   assert.equal(paula.paidCents, null);
+  assert.match(detail.event.date, /^\d{2}\.\d{2}\.\d{4}$/);
+  assert.equal(paula.reference, s.payment.reference);
+  assert.deepEqual(detail.payment, { payeeName: '', iban: '', paypal: 'lenny' }); // zuletzt nur mit PayPal beendet
   const pay = (paid) => admin(`/admin/events/${ev.id}/payments/${paula.userId}`, { method: 'PUT', body: { paid } });
   const paulaNow = async () => (await admin(`/admin/events/${ev.id}`)).data.people.find((p) => p.username === 'paula');
   assert.equal((await pay(true)).data.paidCents, 500);
@@ -300,6 +303,12 @@ test('Kategorien und Bestenliste: live, für Gäste ein- und ausschaltbar', asyn
   assert.equal((await admin('/admin/settings')).data.scoreboard, true);
   assert.equal((await b('/live')).data.board.bier.name, 'Anton');
   assert.equal((await client()('/live')).status, 401);
+});
+
+test('Event-Datum in deutscher Zeit', () => {
+  assert.equal(eventDate({ startedAt: '2026-11-25 23:30:00' }), '26.11.2026'); // 00:30 Uhr in Berlin
+  assert.equal(eventDate({ startedAt: '2026-07-01 21:59:00' }), '01.07.2026'); // Sommerzeit
+  assert.equal(eventDate({ startedAt: '2026-07-01 22:00:00' }), '02.07.2026');
 });
 
 test('Kategorien kommen vom Server', async () => {

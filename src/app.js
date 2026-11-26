@@ -49,6 +49,17 @@ function normalizePaypal(value) {
 }
 
 const NO_EVENT = 'Gerade läuft kein Event.';
+
+// Der QR-Code trennt Felder mit Zeilenumbrüchen. Darum Leerraum in Namen zu einem Leerzeichen machen.
+const oneLine = (t) => t.replace(/\s+/g, ' ');
+
+// Startdatum des Events, z. B. "26.11.2026". Die Datenbank speichert UTC.
+// shortcut: immer deutsche Zeit; für Events in anderen Zeitzonen eine Einstellung ergänzen.
+const eventDate = (e) => new Date(e.startedAt.replace(' ', 'T') + 'Z')
+  .toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin', day: '2-digit', month: '2-digit', year: 'numeric' });
+
+// Verwendungszweck für Überweisung und Erinnerung. EPC erlaubt höchstens 140 Zeichen.
+const reference = (event, name) => oneLine(`Getränke ${event.name} ${eventDate(event)} ${name}`).slice(0, 140);
 // Einzige Liste der Kategorien. Die Oberfläche lädt sie über /api/config. Bestenliste zählt nur bier und misch.
 const CATEGORIES = { bier: 'Bier', misch: 'Mischgetränk', alkoholfrei: 'Alkoholfrei', sonstiges: 'Sonstiges' };
 
@@ -221,15 +232,13 @@ async function createApp(config = {}) {
   async function paymentInfo(user, event, cents) {
     const s = await getSettings();
     const amount = (cents / 100).toFixed(2);
-    // Der QR-Code trennt Felder mit Zeilenumbrüchen. Darum Leerraum in Namen zu einem Leerzeichen machen.
-    const oneLine = (t) => t.replace(/\s+/g, ' ');
-    const reference = oneLine(`Getränke ${event.name} ${user.displayName}`).slice(0, 140);
+    const ref = reference(event, user.displayName);
     const payeeName = oneLine(s.payeeName);
-    const out = { amountCents: cents, reference, payeeName, iban: s.iban, paypalUrl: null, qr: null };
+    const out = { amountCents: cents, reference: ref, payeeName, iban: s.iban, paypalUrl: null, qr: null };
     if (s.paypal) out.paypalUrl = `https://paypal.me/${s.paypal}/${amount}EUR`;
     if (s.iban) {
       // EPC-QR-Code („GiroCode“), Version 002. Fast alle Banking-Apps in Europa lesen ihn.
-      const epc = ['BCD', '002', '1', 'SCT', '', payeeName, s.iban, `EUR${amount}`, '', '', reference].join('\n');
+      const epc = ['BCD', '002', '1', 'SCT', '', payeeName, s.iban, `EUR${amount}`, '', '', ref].join('\n');
       out.qr = await QRCode.toDataURL(epc, { errorCorrectionLevel: 'M', margin: 2, width: 260 });
     }
     return out;
@@ -433,13 +442,15 @@ async function createApp(config = {}) {
     const people = new Map();
     for (const r of rows) {
       const p = people.get(r.userId) || { userId: r.userId, displayName: r.displayName, username: r.username,
-        paidCents: r.paidCents, totalCents: 0, totalCount: 0, drinks: [] };
+        paidCents: r.paidCents, totalCents: 0, totalCount: 0, drinks: [], reference: reference(event, r.displayName) };
       p.totalCents += r.totalCents;
       p.totalCount += r.count;
       p.drinks.push({ name: r.drink, count: r.count, totalCents: r.totalCents });
       people.set(r.userId, p);
     }
-    res.json({ event, people: [...people.values()] });
+    // Zahlungsdaten für den Text „Erinnerung kopieren“.
+    const { payeeName, iban, paypal } = await getSettings();
+    res.json({ event: { ...event, date: eventDate(event) }, people: [...people.values()], payment: { payeeName, iban, paypal } });
   });
 
   admin.put('/events/:id/payments/:userId', async (req, res) => {
@@ -561,4 +572,4 @@ async function createApp(config = {}) {
   return app;
 }
 
-module.exports = { createApp };
+module.exports = { createApp, eventDate };

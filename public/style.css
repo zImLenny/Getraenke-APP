@@ -172,6 +172,7 @@ tfoot td { font-weight: 700; background: var(--surface-2); }
 .paidbox { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--text); cursor: pointer; }
 .paidbox input { width: 22px; height: 22px; accent-color: var(--ok); }
 .person details { margin-top: 8px; }
+.person-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
 .person summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
 .person details table { margin-top: 6px; }
 .board { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
